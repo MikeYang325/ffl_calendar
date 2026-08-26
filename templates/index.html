@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="color-scheme" content="light" />
+  <title>海航 PLUS 航线查询</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="page-shell">
+    <header class="hero">
+      <div class="hero-inner">
+        <div>
+          <div class="eyebrow">HNA PLUS ROUTE FINDER</div>
+          <h1>海航 PLUS · 航线搜索</h1>
+          <p>基于 flight_daily.csv 的航班计划快照，查询直飞、中转、666 / 2666 适用航班。</p>
+        </div>
+        <div class="data-badge" id="dataBadge">正在读取数据…</div>
+      </div>
+    </header>
+
+    <main class="container">
+      <nav class="main-tabs">
+        <button class="tab active" data-tab="searchPanel">航班搜索</button>
+        <button class="tab" data-tab="routesPanel">航线总览</button>
+      </nav>
+
+      <section id="searchPanel" class="panel active">
+        <div class="search-card">
+          <div class="segmented" id="tripMode">
+            <button class="active" data-mode="oneway">单程</button>
+            <button data-mode="roundtrip">往返</button>
+          </div>
+
+          <div class="search-grid route-row">
+            <label class="field">
+              <span>出发城市 / 机场</span>
+              <select id="originSelect"></select>
+            </label>
+            <button class="swap-btn" id="swapBtn" title="交换出发和到达">⇄</button>
+            <label class="field">
+              <span>到达城市 / 机场</span>
+              <select id="destinationSelect"></select>
+            </label>
+          </div>
+
+          <div class="search-grid options-row">
+            <label class="field">
+              <span>出发日期</span>
+              <input id="departureDate" type="date" />
+            </label>
+            <label class="field return-field hidden" id="returnField">
+              <span>返程日期</span>
+              <input id="returnDate" type="date" />
+            </label>
+            <label class="field">
+              <span>会员版本</span>
+              <select id="membershipSelect">
+                <option value="all">全部</option>
+                <option value="666">666（08:00前 / 20:00后）</option>
+                <option value="2666">2666（全天）</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>最大中转次数</span>
+              <select id="maxStopsSelect">
+                <option value="0">仅直飞</option>
+                <option value="1">最多 1 次中转</option>
+                <option value="2">最多 2 次中转</option>
+              </select>
+            </label>
+          </div>
+
+          <details class="advanced">
+            <summary>高级选项</summary>
+            <div class="search-grid advanced-grid">
+              <label class="field">
+                <span>航司</span>
+                <select id="airlineSelect"><option value="">全部航司</option></select>
+              </label>
+              <label class="field">
+                <span>航班号</span>
+                <input id="flightNoInput" type="text" placeholder="例如 HU7167" />
+              </label>
+              <label class="field">
+                <span>排序</span>
+                <select id="sortSelect">
+                  <option value="departure">起飞时间</option>
+                  <option value="arrival">到达时间</option>
+                  <option value="duration">总行程时间</option>
+                  <option value="stops">中转次数</option>
+                </select>
+              </label>
+            </div>
+          </details>
+
+          <button class="primary-btn" id="searchBtn">搜索航班</button>
+          <div class="rule-tip"><b>规则：</b>666 = 08:00 前或 20:00 后出发；2666 = 全天覆盖。中转默认要求 1–24 小时，总行程不超过 48 小时。</div>
+        </div>
+
+        <div class="stats-grid" id="statsGrid"></div>
+
+        <section class="results-section">
+          <div class="section-heading">
+            <div>
+              <h2 id="resultTitle">搜索结果</h2>
+              <p id="resultSubtitle">选择城市和日期后开始搜索</p>
+            </div>
+          </div>
+          <div id="results" class="results-list empty-state">暂无搜索结果</div>
+          <div id="returnResultsWrap" class="hidden">
+            <div class="section-heading return-heading">
+              <div>
+                <h2>返程结果</h2>
+                <p id="returnSubtitle"></p>
+              </div>
+            </div>
+            <div id="returnResults" class="results-list"></div>
+          </div>
+        </section>
+      </section>
+
+      <section id="routesPanel" class="panel">
+        <div class="search-card route-overview-controls">
+          <div class="overview-title">
+            <div>
+              <h2>航线总览</h2>
+              <p>查看某个出发机场在整个数据周期内出现过的全部 PLUS 目的地。</p>
+            </div>
+            <div class="route-count" id="routeCount">0 条</div>
+          </div>
+          <div class="search-grid advanced-grid">
+            <label class="field">
+              <span>出发城市 / 机场</span>
+              <select id="overviewOrigin"></select>
+            </label>
+            <label class="field">
+              <span>会员版本</span>
+              <select id="overviewMembership">
+                <option value="all">全部</option>
+                <option value="666">666</option>
+                <option value="2666">2666</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>航司</span>
+              <select id="overviewAirline"><option value="">全部航司</option></select>
+            </label>
+            <label class="field">
+              <span>筛选目的地 / 航班号</span>
+              <input id="overviewQuery" placeholder="例如 福州 / HU7195" />
+            </label>
+          </div>
+          <button class="primary-btn secondary" id="overviewBtn">查看全部航线</button>
+        </div>
+        <div id="routesTableWrap" class="table-card">
+          <table class="routes-table">
+            <thead>
+              <tr>
+                <th>到达城市</th><th>机场</th><th>航班号</th><th>时刻</th><th>班期</th><th>实际运行日期</th><th>产品</th>
+              </tr>
+            </thead>
+            <tbody id="routesTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>独立航班计划查询工具 · 数据来自本地 flight_daily.csv · 非实时航班服务，实际预订请以航司官方系统为准。</p>
+    </footer>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
