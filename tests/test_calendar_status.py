@@ -40,6 +40,14 @@ class CalendarStatusTest(unittest.TestCase):
         self.assertTrue(aggregate)
         self.assertEqual(set(codes), {"PEK", "PKX"})
 
+    def test_route_departure_period_filter(self):
+        morning = app.STORE.routes_from("PEK", membership="666", departure_period="morning")
+        evening = app.STORE.routes_from("PEK", membership="666", departure_period="evening")
+        self.assertTrue(morning)
+        self.assertTrue(evening)
+        self.assertTrue(all(t["departure_time"] < "08:00" for row in morning for t in row["times"]))
+        self.assertTrue(all(t["departure_time"] >= "20:00" for row in evening for t in row["times"]))
+
     def test_route_weekday_filter(self):
         rows = app.STORE.routes_from("PEK", membership="666", weekday="2")
         self.assertTrue(rows)

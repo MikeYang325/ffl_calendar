@@ -499,7 +499,7 @@ class FlightStore:
             items.sort(key=lambda x: (x["departure_dt"], x["stops"], x["total_minutes"]))
         return items
 
-    def routes_from(self, origin, membership="all", airline="", query="", weekday=""):
+    def routes_from(self, origin, membership="all", airline="", query="", weekday="", departure_period=""):
         origin_codes, origin_name, aggregate_mode = self.resolve_origins(origin)
         if not origin_codes:
             return []
@@ -511,6 +511,10 @@ class FlightStore:
             weekday_value = None
         if weekday_value not in {1, 2, 3, 4, 5, 6, 7}:
             weekday_value = None
+
+        departure_period = str(departure_period or "").strip().lower()
+        if departure_period not in {"morning", "evening"}:
+            departure_period = ""
 
         groups = defaultdict(lambda: {
             "weekdays": set(),
@@ -531,6 +535,10 @@ class FlightStore:
         for origin_code in origin_codes:
             for f in self.by_origin_sorted.get(origin_code, []):
                 if weekday_value and f["departure_dt"].weekday() + 1 != weekday_value:
+                    continue
+                if departure_period == "morning" and f["departure_time"] >= "08:00":
+                    continue
+                if departure_period == "evening" and f["departure_time"] < "20:00":
                     continue
                 if not product_eligible(f["departure_time"], membership):
                     continue
@@ -722,6 +730,7 @@ class Handler(BaseHTTPRequestHandler):
                 airline=one(qs, "airline").strip().upper(),
                 query=one(qs, "q"),
                 weekday=one(qs, "weekday"),
+                departure_period=one(qs, "departure_period"),
             )
             return self.send_json({
                 "origin": origin, "origin_name": origin_name, "origin_codes": origin_codes,

@@ -553,6 +553,7 @@ async function loadOverview() {
     origin,
     membership: $('overviewMembership').value,
     weekday: $('overviewWeekday').value,
+    departure_period: $('overviewDeparturePeriod').value,
     airline: $('overviewAirline').value,
     q: $('overviewQuery').value.trim(),
   });
@@ -631,6 +632,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('overviewOriginSelect').addEventListener('change', loadOverview);
   $('overviewMembership').addEventListener('change', loadOverview);
   $('overviewWeekday').addEventListener('change', loadOverview);
+  $('overviewDeparturePeriod').addEventListener('change', loadOverview);
   $('overviewAirline').addEventListener('change', loadOverview);
   $('overviewQuery').addEventListener('input', () => {
     clearTimeout(overviewQueryTimer);

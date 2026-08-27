@@ -36,7 +36,7 @@ button { cursor:pointer; }
 .route-row { grid-template-columns:minmax(0,1fr) 44px minmax(0,1fr); align-items:end; }
 .options-row { grid-template-columns:repeat(4,minmax(0,1fr)); margin-top:16px; }
 .advanced-grid { grid-template-columns:repeat(4,minmax(0,1fr)); margin-top:14px; }
-.overview-filter-grid { grid-template-columns:repeat(5,minmax(0,1fr)); margin-top:14px; }
+.overview-filter-grid { grid-template-columns:repeat(6,minmax(0,1fr)); margin-top:14px; }
 .aggregate-tag { margin-left:6px; vertical-align:middle; }
 .field { display:flex; flex-direction:column; gap:7px; }
 .field span { font-size:13px; color:#5e7086; font-weight:700; }
