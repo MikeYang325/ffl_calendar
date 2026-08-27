@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'scripts/apply_hna_mobile_blackout.py'
+      - '.github/workflows/apply-hna-mobile-blackout.yml'
 
 permissions:
   contents: write
