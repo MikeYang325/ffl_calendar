@@ -18,21 +18,34 @@ class CalendarStatusTest(unittest.TestCase):
 
     def test_pek_hgh_calendar_all(self):
         route = self._pek_hgh("all")
-        self.assertEqual(route["operating_days"], 54)
+        self.assertEqual(route["operating_days"], 43)
         self.assertIn("2026-09-01", route["b_candidate_dates"])
-        self.assertIn("2026-10-01", route["running_only_dates"])
+        self.assertNotIn("2026-10-01", route["operating_dates"])
+        self.assertNotIn("2026-10-01", route["running_only_dates"])
         self.assertNotIn("2026-10-01", route["b_candidate_dates"])
         self.assertIn("2026-10-01", route["holiday_blocked_dates"])
 
     def test_pek_hgh_calendar_666(self):
         route = self._pek_hgh("666")
         self.assertIn("2026-09-01", route["b_candidate_dates"])
-        self.assertIn("2026-10-01", route["running_only_dates"])
+        self.assertNotIn("2026-10-01", route["operating_dates"])
+        self.assertIn("2026-10-01", route["holiday_blocked_dates"])
 
     def test_pek_hgh_calendar_2666(self):
         route = self._pek_hgh("2666")
         self.assertIn("2026-09-01", route["b_candidate_dates"])
-        self.assertIn("2026-10-01", route["running_only_dates"])
+        self.assertNotIn("2026-10-01", route["operating_dates"])
+        self.assertIn("2026-10-01", route["holiday_blocked_dates"])
+
+    def test_october_blackout_is_hard_blocked(self):
+        for day in range(1, 9):
+            date = f"2026-10-{day:02d}"
+            self.assertTrue(app.ticket_blackout(date))
+            self.assertEqual(app.STORE.search("PEK", "HGH", date, membership="all", max_stops=0), [])
+            route = self._pek_hgh("all")
+            self.assertNotIn(date, route["operating_dates"])
+        self.assertFalse(app.ticket_blackout("2026-10-09"))
+        self.assertGreater(len(app.STORE.search("PEK", "HGH", "2026-10-09", membership="all", max_stops=0)), 0)
 
     def test_city_origin_resolution(self):
         codes, name, aggregate = app.STORE.resolve_origins("北京")

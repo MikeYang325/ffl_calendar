@@ -543,3 +543,160 @@ footer { text-align:center; color:#7b8999; font-size:12px; padding:16px 20px 34p
   }
 }
 
+/* HNA burgundy & gold visual refresh + compact mobile forms v2 */
+:root {
+  --bg: #f5f1ed;
+  --card: #fffdfb;
+  --ink: #2d1d22;
+  --muted: #796b6f;
+  --primary: #a20b2a;
+  --primary-dark: #7f081f;
+  --accent: #c69a4b;
+  --line: #eaded9;
+  --soft: #f7ece9;
+  --shadow: 0 14px 38px rgba(87, 35, 40, .10);
+}
+body { background:linear-gradient(180deg,#f3eee9 0,#f7f4f1 55%,#f3eee9 100%); }
+.hero {
+  background:linear-gradient(135deg,#570816 0%,#8d1026 64%,#b0792f 100%);
+  box-shadow:inset 0 -1px 0 rgba(255,220,157,.24);
+}
+.eyebrow { color:#f4d6a1; opacity:.95; }
+.data-badge {
+  border-color:rgba(239,204,142,.55);
+  background:rgba(255,245,225,.10);
+}
+.tab.active { color:var(--primary); }
+.primary-btn {
+  background:linear-gradient(90deg,#941027,#bd1836);
+  box-shadow:0 8px 18px rgba(151,16,42,.20);
+}
+.primary-btn:hover { background:linear-gradient(90deg,#79091f,#a90f2d); }
+.field input:focus,.field select:focus,.airport-input:focus,.airport-search:focus {
+  border-color:#ba6f7e;
+  box-shadow:0 0 0 3px rgba(162,11,42,.08);
+}
+.tag.product { background:#f7ece1; color:#8b5b16; }
+
+@media (max-width: 520px) {
+  .hero { padding:20px 14px 42px; }
+  .hero h1 { margin:6px 0 5px; font-size:25px; line-height:1.12; letter-spacing:-.02em; }
+  .eyebrow { font-size:9px; letter-spacing:.16em; }
+  .data-badge { margin-top:10px; padding:6px 10px; font-size:10px; }
+  .container { padding:0 9px; margin-top:-26px; }
+  .main-tabs { gap:5px; margin-bottom:9px; }
+  .tab { padding:9px 14px; border-radius:10px; font-size:13px; }
+
+  /* 航班搜索也使用紧凑布局，避免只优化航线总览。 */
+  #searchPanel .search-card {
+    padding:13px;
+    border-radius:16px;
+  }
+  #searchPanel .segmented {
+    margin-bottom:11px;
+    padding:3px;
+    border-radius:10px;
+  }
+  #searchPanel .segmented button {
+    padding:7px 17px;
+    border-radius:8px;
+    font-size:13px;
+  }
+  #searchPanel .search-grid { gap:8px; }
+  #searchPanel .route-row {
+    position:relative;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:8px;
+    align-items:end;
+  }
+  #searchPanel .route-row > .field:first-child { grid-column:1; }
+  #searchPanel .route-row > .field:last-child { grid-column:2; }
+  #searchPanel .route-row .swap-btn {
+    position:absolute;
+    left:50%;
+    top:31px;
+    transform:translateX(-50%);
+    width:30px;
+    height:30px;
+    z-index:4;
+    background:#fffaf4;
+    border-color:#dfc5b3;
+    color:var(--primary);
+    font-size:15px;
+    box-shadow:0 3px 10px rgba(83,30,35,.08);
+  }
+  #searchPanel .field { min-width:0; gap:4px; }
+  #searchPanel .field > span { font-size:11px; line-height:1.2; }
+  #searchPanel .field input,
+  #searchPanel .field select,
+  #searchPanel .airport-input {
+    height:40px;
+    min-width:0;
+    padding-left:9px;
+    padding-right:9px;
+    border-radius:10px;
+    font-size:13px;
+  }
+  #searchPanel .airport-input { padding-right:28px; text-overflow:ellipsis; }
+  #searchPanel .airport-picker::after { right:9px; top:9px; }
+  #searchPanel .options-row,
+  #searchPanel .advanced-grid {
+    grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+    gap:8px;
+    margin-top:9px;
+  }
+  #searchPanel .advanced {
+    margin-top:10px;
+    padding-top:9px;
+  }
+  #searchPanel .advanced summary { font-size:12px; }
+  #searchPanel .primary-btn {
+    margin-top:11px;
+    min-height:41px;
+    padding:10px 14px;
+    border-radius:11px;
+    font-size:14px;
+  }
+  #searchPanel .stats-grid {
+    grid-template-columns:repeat(3,minmax(0,1fr));
+    gap:6px;
+    margin:9px 0;
+  }
+  #searchPanel .stat { padding:9px 7px; border-radius:11px; text-align:center; }
+  #searchPanel .stat strong { margin-top:2px; font-size:17px; }
+  #searchPanel .stat span { font-size:9px; }
+  #searchPanel .results-section { margin-top:11px; }
+
+  /* 航线总览继续保持两列紧凑筛选。 */
+  .route-overview-controls { padding:13px; border-radius:16px; }
+  .overview-title h2 { font-size:20px; }
+  .route-count { font-size:22px; }
+  .overview-filter-grid {
+    grid-template-columns:repeat(2,minmax(0,1fr)) !important;
+    gap:8px;
+    margin-top:9px;
+  }
+  .overview-filter-grid .field { min-width:0; gap:4px; }
+  .overview-filter-grid .field > span { font-size:11px; line-height:1.2; }
+  .overview-filter-grid .field input,
+  .overview-filter-grid .field select,
+  .route-overview-controls .airport-input {
+    height:40px;
+    min-width:0;
+    padding-left:9px;
+    padding-right:9px;
+    border-radius:10px;
+    font-size:13px;
+  }
+  .route-overview-controls .airport-input { padding-right:28px; }
+  .route-overview-controls .airport-picker::after { right:9px; top:9px; }
+  .route-overview-controls .primary-btn.secondary {
+    margin-top:11px;
+    min-height:40px;
+    padding:9px 17px;
+    border-radius:10px;
+    font-size:13px;
+  }
+  .table-card { margin-top:10px; }
+}
+

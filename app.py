@@ -23,6 +23,13 @@ AIRLINE_MAP = {
 }
 WEEKDAY_CN = {1: "一", 2: "二", 3: "三", 4: "四", 5: "五", 6: "六", 7: "日"}
 
+# 飞飞乐 PLUS 已确认的硬性无票期。即使后续重新导入数据库，规则也不会丢失。
+TICKET_BLACKOUT_RANGES = (("2026-10-01", "2026-10-08"),)
+
+def ticket_blackout(date_text):
+    value = str(date_text or "").strip()
+    return any(start <= value <= end for start, end in TICKET_BLACKOUT_RANGES)
+
 CITY_AIRPORT_MAP = {
     "北京": ("PEK", "PKX"),
     "上海": ("SHA", "PVG"),
@@ -403,6 +410,9 @@ class FlightStore:
 
     @staticmethod
     def _basic_filter(f, membership="all", airline="", flight_no=""):
+        # holiday_blocked 来自数据导入；ticket_blackout 是业务规则双保险。
+        if f.get("holiday_blocked") or ticket_blackout(f.get("departure_date")):
+            return False
         if not product_eligible(f["departure_time"], membership):
             return False
         if airline and f["airline_code"] != airline:
@@ -564,13 +574,20 @@ class FlightStore:
                 g = groups[group_key]
                 g["destination_name"] = destination_name
                 g["weekdays"].add(f["departure_dt"].weekday() + 1)
-                g["dates"].add(f["departure_date"])
+                # 航班号/主时刻仍来自完整计划快照；有票日期单独按业务规则计算。
                 g["flight_records"].append(f)
                 g["airlines"].add(f["airline"])
                 g["products"].add(f["product"])
                 g["origins"].add(f["origin"])
                 g["destinations"].add(f["destination"])
                 g["airport_pairs"].add((f["origin"], f["destination"]))
+
+                blocked = f["holiday_blocked"] or ticket_blackout(f["departure_date"])
+                if blocked:
+                    g["holiday_blocked_dates"].add(f["departure_date"])
+                    continue
+
+                g["dates"].add(f["departure_date"])
                 g["date_flights"][f["departure_date"]].add(f["flight_no"])
 
                 if membership == "666":
@@ -589,12 +606,13 @@ class FlightStore:
                     g["running_only_dates"].add(f["departure_date"])
                 if b_visible:
                     g["b_visible_dates"].add(f["departure_date"])
-                if f["holiday_blocked"]:
-                    g["holiday_blocked_dates"].add(f["departure_date"])
 
         out = []
         for group_key, g in groups.items():
             operating_dates = sorted(g["dates"])
+            # 当前筛选下全落在无票期的航线，不应该出现在“可用航线”列表。
+            if not operating_dates:
+                continue
             candidate_dates = sorted(g["b_candidate_dates"])
             visible_dates = sorted(g["b_visible_dates"])
             running_only_dates = sorted(g["running_only_dates"] - g["b_candidate_dates"])
