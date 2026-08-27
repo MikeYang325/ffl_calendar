@@ -1,6 +1,7 @@
 const $ = (id) => document.getElementById(id);
 let META = null;
 let tripMode = 'oneway';
+let overviewQueryTimer = null;
 const AIRPORT_PICKERS = {};
 
 const esc = (s) => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
@@ -298,7 +299,8 @@ function setDefaultAirports() {
   const dest = $('destinationSelect');
   if ([...origin.options].some(o => o.value === 'PEK')) origin.value = 'PEK';
   if ([...dest.options].some(o => o.value === 'CAN')) dest.value = 'CAN';
-  $('overviewOrigin').value = origin.value || 'PEK';
+  const hasBeijing = (META.cities || []).some(x => x.name === '北京');
+  $('overviewOrigin').value = hasBeijing ? '北京' : (origin.value || 'PEK');
   refreshAllAirportPickers();
 }
 
@@ -308,12 +310,16 @@ async function init() {
   $('dataBadge').textContent = `数据 ${META.date_min} → ${META.date_max}`;
   $('originSelect').innerHTML = optionHtml(META.airports, '选择出发机场');
   $('destinationSelect').innerHTML = optionHtml(META.airports, '选择到达机场');
-  $('overviewOrigin').innerHTML = optionHtml(META.airports, '选择出发机场');
+  $('overviewOriginOptions').innerHTML = [
+    ...(META.cities || []).map(x => `<option value="${esc(x.name)}" label="${esc(x.label)}"></option>`),
+    ...(META.airports || []).map(x => `<option value="${esc(x.code)}" label="${esc(x.name)} ${esc(x.code)}"></option>`)
+  ].join('');
   enhanceAirportSelect('originSelect', '输入出发城市 / 机场 / 三字码');
   enhanceAirportSelect('destinationSelect', '输入到达城市 / 机场 / 三字码');
-  enhanceAirportSelect('overviewOrigin', '输入出发城市 / 机场 / 三字码');
   $('airlineSelect').innerHTML = `<option value="">全部航司</option>` + META.airlines.map(x => `<option value="${x.code}">${x.label}</option>`).join('');
   $('overviewAirline').innerHTML = $('airlineSelect').innerHTML;
+  $('membershipSelect').value = '666';
+  $('overviewMembership').value = '666';
   $('departureDate').min = META.date_min;
   $('departureDate').max = META.date_max;
   $('returnDate').min = META.date_min;
@@ -463,7 +469,13 @@ function routeCalendarHtml(route) {
 
   // “无航班记录”只统计该航线第一次出现到最后一次出现之间的空缺日期。
   // 首次出现之前 / 最后出现之后仍显示为观察区间外，避免误判。
-  const serviceDates = dateRangeList(serviceStart, serviceEnd);
+  const weekdayFilter = Number(route.weekday_filter || 0);
+  const matchesWeekday = (date) => {
+    if (!weekdayFilter) return true;
+    const day = new Date(`${date}T00:00:00`).getDay();
+    return (day === 0 ? 7 : day) === weekdayFilter;
+  };
+  const serviceDates = dateRangeList(serviceStart, serviceEnd).filter(matchesWeekday);
   const inactiveDates = serviceDates.filter(d => !operating.has(d));
 
   const start = new Date(`${startText}T00:00:00`);
@@ -500,6 +512,9 @@ function routeCalendarHtml(route) {
 
       if (!inRange) {
         cls += ' outside';
+      } else if (weekdayFilter && !matchesWeekday(date)) {
+        cls += ' outside-window';
+        title = `${date}：未选择该星期`;
       } else if (hasBCandidate) {
         cls += ' b-candidate';
         title = `${date}：航班运行；有/有过 B 舱${hasBVisible ? '（当前响应可见 B）' : ''}${flights ? `；${flights}` : ''}`;
@@ -537,7 +552,6 @@ function routeCalendarHtml(route) {
         <div><span class="legend-dot running-only"></span><strong>航班运行但无 B ${runningOnly.size} 天</strong></div>
         <div><span class="legend-dot inactive"></span><strong>首末出现区间内无航班记录 ${inactiveDates.length} 天</strong></div>
         <div><span class="legend-dot outside-window"></span><strong>首末出现区间外</strong></div>
-        <div class="calendar-note">航线首末出现：${esc(serviceStart)} ～ ${esc(serviceEnd)}；完整数据范围：${esc(startText)} ～ ${esc(endText)}。日历只展示航班运行与 B 舱状态，不展示余票。</div>
       </div>
       <div class="route-calendars">${months.join('')}</div>
       <details class="inactive-date-list">
@@ -550,11 +564,12 @@ function routeCalendarHtml(route) {
 
 
 async function loadOverview() {
-  const origin = $('overviewOrigin').value || $('originSelect').value;
+  const origin = $('overviewOrigin').value.trim() || $('originSelect').value;
   if (!origin) return;
   const p = new URLSearchParams({
     origin,
     membership: $('overviewMembership').value,
+    weekday: $('overviewWeekday').value,
     airline: $('overviewAirline').value,
     q: $('overviewQuery').value.trim(),
   });
@@ -569,17 +584,17 @@ async function loadOverview() {
     ).join('<br>');
 
     const dateId = `route-dates-${idx}`;
-    const scheduleTip = x.schedule === '1234567'
-      ? '<div class="sub schedule-warning">周一至周日均有出现 ≠ 每天运行</div>'
-      : `<div class="sub">${esc(x.schedule_text)}</div>`;
+    const airportText = x.aggregate
+      ? `${(x.origin_codes || []).map(esc).join('/')} → ${(x.destination_codes || []).map(esc).join('/')}`
+      : (x.destination_codes || [x.destination]).map(esc).join('/');
 
     return `
       <tr class="route-main-row">
-        <td class="dest"><strong>${esc(x.destination_name)}</strong><div class="sub">${esc(x.airlines.join(' / '))}</div></td>
-        <td>${esc(x.destination)}</td>
+        <td class="dest"><strong>${esc(x.destination_name)}</strong> <span class="tag aggregate-tag">${x.flight_records_count} 班</span><div class="sub">${esc(x.airlines.join(' / '))}</div></td>
+        <td>${airportText}</td>
         <td>${x.flight_nos.map(esc).join('<br>')}</td>
         <td class="mono">${times}</td>
-        <td><strong>${esc(x.schedule)}</strong>${scheduleTip}</td>
+        <td><strong>${esc(x.schedule)}</strong></td>
         <td>
           <strong>${x.operating_days} 天</strong>
           <div class="sub">${esc(x.first_date)} ~ ${esc(x.last_date)}</div>
@@ -631,7 +646,18 @@ document.addEventListener('DOMContentLoaded', () => {
   $('searchBtn').addEventListener('click', searchFlights);
   $('overviewBtn').addEventListener('click', loadOverview);
   $('overviewOrigin').addEventListener('change', loadOverview);
+  $('overviewOrigin').addEventListener('keydown', e => { if (e.key === 'Enter') loadOverview(); });
   $('overviewMembership').addEventListener('change', loadOverview);
+  $('overviewWeekday').addEventListener('change', loadOverview);
   $('overviewAirline').addEventListener('change', loadOverview);
-  $('overviewQuery').addEventListener('keydown', e => { if (e.key === 'Enter') loadOverview(); });
+  $('overviewQuery').addEventListener('input', () => {
+    clearTimeout(overviewQueryTimer);
+    overviewQueryTimer = setTimeout(loadOverview, 250);
+  });
+  $('overviewQuery').addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      clearTimeout(overviewQueryTimer);
+      loadOverview();
+    }
+  });
 });

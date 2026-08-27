@@ -4,3 +4,6 @@ __pycache__/
 .DS_Store
 .vercel
 .env*
+data/*.csv
+archive.b64
+archive.b64.*

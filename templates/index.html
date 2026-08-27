@@ -14,7 +14,6 @@
         <div>
           <div class="eyebrow">HNA PLUS ROUTE FINDER</div>
           <h1>海航 PLUS · 航线搜索</h1>
-          <p>基于 flight_daily.csv 的航班计划快照，查询直飞、中转、666 / 2666 适用航班。</p>
         </div>
         <div class="data-badge" id="dataBadge">正在读取数据…</div>
       </div>
@@ -57,9 +56,8 @@
             <label class="field">
               <span>会员版本</span>
               <select id="membershipSelect">
-                <option value="all">全部</option>
-                <option value="666">666（08:00前 / 20:00后）</option>
-                <option value="2666">2666（全天）</option>
+                <option value="666" selected>666</option>
+                <option value="all">666/2666（全部）</option>
               </select>
             </label>
             <label class="field">
@@ -96,7 +94,6 @@
           </details>
 
           <button class="primary-btn" id="searchBtn">搜索航班</button>
-          <div class="rule-tip"><b>规则：</b>666 = 08:00 前或 20:00 后出发；2666 = 全天覆盖。中转默认要求 1–24 小时，总行程不超过 48 小时。</div>
         </div>
 
         <div class="stats-grid" id="statsGrid"></div>
@@ -126,21 +123,33 @@
           <div class="overview-title">
             <div>
               <h2>航线总览</h2>
-              <p>查看某个出发机场在整个数据周期内出现过的全部 PLUS 目的地。</p>
             </div>
             <div class="route-count" id="routeCount">0 条</div>
           </div>
-          <div class="search-grid advanced-grid">
+          <div class="search-grid overview-filter-grid">
             <label class="field">
               <span>出发城市 / 机场</span>
-              <select id="overviewOrigin"></select>
+              <input id="overviewOrigin" list="overviewOriginOptions" placeholder="城市 / 机场 / 三字码" autocomplete="off" />
+              <datalist id="overviewOriginOptions"></datalist>
             </label>
             <label class="field">
               <span>会员版本</span>
               <select id="overviewMembership">
-                <option value="all">全部</option>
-                <option value="666">666</option>
-                <option value="2666">2666</option>
+                <option value="666" selected>666</option>
+                <option value="all">666/2666（全部）</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>出发星期</span>
+              <select id="overviewWeekday">
+                <option value="">全部</option>
+                <option value="1">周一</option>
+                <option value="2">周二</option>
+                <option value="3">周三</option>
+                <option value="4">周四</option>
+                <option value="5">周五</option>
+                <option value="6">周六</option>
+                <option value="7">周日</option>
               </select>
             </label>
             <label class="field">
@@ -148,11 +157,11 @@
               <select id="overviewAirline"><option value="">全部航司</option></select>
             </label>
             <label class="field">
-              <span>筛选目的地 / 航班号</span>
-              <input id="overviewQuery" placeholder="例如 福州 / HU7195" />
+              <span>搜索</span>
+              <input id="overviewQuery" placeholder="目的地 / 机场 / 航班号" />
             </label>
           </div>
-          <button class="primary-btn secondary" id="overviewBtn">查看全部航线</button>
+          <button class="primary-btn secondary" id="overviewBtn">查看航线</button>
         </div>
         <div id="routesTableWrap" class="table-card">
           <table class="routes-table">

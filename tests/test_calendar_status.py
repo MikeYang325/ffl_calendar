@@ -9,7 +9,7 @@ class CalendarStatusTest(unittest.TestCase):
         self.assertEqual(rows[0]["destination"], "HGH")
         return rows[0]
 
-    def test_new_csv_fields_loaded(self):
+    def test_database_fields_loaded(self):
         sample = next(f for f in app.STORE.flights if f["origin"] == "PEK" and f["destination"] == "HGH")
         self.assertIn("b_status", sample)
         self.assertIn("b_expected_or_seen", sample)
@@ -33,6 +33,26 @@ class CalendarStatusTest(unittest.TestCase):
         route = self._pek_hgh("2666")
         self.assertIn("2026-09-01", route["b_candidate_dates"])
         self.assertIn("2026-10-01", route["running_only_dates"])
+
+    def test_city_origin_resolution(self):
+        codes, name, aggregate = app.STORE.resolve_origins("北京")
+        self.assertEqual(name, "北京")
+        self.assertTrue(aggregate)
+        self.assertEqual(set(codes), {"PEK", "PKX"})
+
+    def test_route_weekday_filter(self):
+        rows = app.STORE.routes_from("PEK", membership="666", weekday="2")
+        self.assertTrue(rows)
+        for route in rows:
+            self.assertEqual(route["schedule"], "2")
+            self.assertTrue(all(__import__("datetime").date.fromisoformat(d).isoweekday() == 2 for d in route["operating_dates"]))
+
+    def test_city_overview_aggregates_origins(self):
+        rows = app.STORE.routes_from("北京", membership="all")
+        self.assertTrue(rows)
+        self.assertTrue(all(route["aggregate"] for route in rows))
+        seen_origins = set(code for route in rows for code in route["origin_codes"])
+        self.assertTrue({"PEK", "PKX"}.issubset(seen_origins))
 
     def test_pek_hgh_schedule_time_tolerance(self):
         route = self._pek_hgh("all")

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import argparse
-import csv
+import sqlite3
 import json
 import mimetypes
 import os
@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 BASE_DIR = Path(__file__).resolve().parent
-DATA_FILE = Path(os.environ.get("HNA_FLIGHT_CSV", BASE_DIR / "data" / "flight_daily.csv"))
+DB_FILE = Path(os.environ.get("HNA_FLIGHT_DB", BASE_DIR / "data" / "flights.db"))
 
 AIRLINE_MAP = {
     "HU": "海南航空", "GS": "天津航空", "JD": "首都航空", "PN": "西部航空",
@@ -22,6 +22,18 @@ AIRLINE_MAP = {
     "FU": "福州航空", "GX": "北部湾航空", "Y8": "金鹏航空",
 }
 WEEKDAY_CN = {1: "一", 2: "二", 3: "三", 4: "四", 5: "五", 6: "六", 7: "日"}
+
+CITY_AIRPORT_MAP = {
+    "北京": ("PEK", "PKX"),
+    "上海": ("SHA", "PVG"),
+    "成都": ("CTU", "TFU"),
+    "重庆": ("CKG", "WSK"),
+    "遵义": ("ZYI", "WMT"),
+    "东京": ("HND", "NRT"),
+    "首尔": ("ICN", "GMP"),
+    "大阪": ("KIX", "ITM"),
+    "台北": ("TPE", "TSA"),
+}
 
 
 def pinyin_initial(text):
@@ -193,94 +205,80 @@ def csv_bool(value):
 
 
 class FlightStore:
-    def __init__(self, csv_path):
-        self.csv_path = Path(csv_path)
+    def __init__(self, db_path):
+        self.db_path = Path(db_path)
         self.flights = []
         self.by_date_origin = defaultdict(list)
         self.by_origin_sorted = defaultdict(list)
         self.by_origin_times = defaultdict(list)
         self.airports = {}
         self.airlines = {}
+        self.city_airports = {}
+        self.city_by_airport = {}
         self.date_min = ""
         self.date_max = ""
         self.route_overview = {}
         self.load()
 
     def load(self):
-        if not self.csv_path.exists():
-            raise FileNotFoundError(f"找不到数据文件：{self.csv_path}")
+        if not self.db_path.exists():
+            raise FileNotFoundError(f"找不到数据库：{self.db_path}")
 
-        raw, dates, seen = [], [], set()
-        with self.csv_path.open("r", encoding="utf-8-sig", newline="") as f:
-            for row in csv.DictReader(f):
-                origin = (row.get("origin") or row.get("departure_airport") or "").strip().upper()
-                destination = (row.get("destination") or row.get("arrival_airport") or "").strip().upper()
-                dep_date = (row.get("departure_date") or row.get("query_date") or "").strip()
-                dep_time = (row.get("departure_time") or "").strip()
-                arr_date = (row.get("arrival_date") or dep_date).strip()
-                arr_time = (row.get("arrival_time") or "").strip()
-                flight_no = (row.get("flight_no") or "").strip().upper()
-                if not all([origin, destination, dep_date, dep_time, arr_date, arr_time, flight_no]):
-                    continue
-
-                dedupe = (origin, destination, flight_no, dep_date, dep_time, arr_date, arr_time)
-                if dedupe in seen:
-                    continue
-                seen.add(dedupe)
-
-                try:
-                    dep_dt = parse_datetime(dep_date, dep_time)
-                    arr_dt = parse_datetime(arr_date, arr_time)
-                except ValueError:
-                    continue
-
-                origin_name = (row.get("origin_name") or row.get("departure_city") or origin).strip()
-                destination_name = (row.get("destination_name") or row.get("arrival_city") or destination).strip()
-                code = airline_code(flight_no)
-                try:
-                    duration = int(float(row.get("duration_minutes") or 0))
-                except Exception:
-                    duration = int((arr_dt - dep_dt).total_seconds() // 60)
-
+        raw, dates = [], []
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("""
+                SELECT origin, origin_name, destination, destination_name,
+                       flight_no, operating_flight_no, departure_date, departure_time,
+                       arrival_date, arrival_time, duration_minutes, aircraft,
+                       code_share, stop_quantity, flight_running, b_status,
+                       b_expected_or_seen, b_visible_raw, holiday_blocked,
+                       status_666, eligible_666, status_2666, eligible_2666
+                FROM flights
+                ORDER BY departure_date, departure_time, origin, destination, flight_no
+            """)
+            for db_row in rows:
+                row = dict(db_row)
+                dep_dt = parse_datetime(row["departure_date"], row["departure_time"])
+                arr_dt = parse_datetime(row["arrival_date"], row["arrival_time"])
+                code = airline_code(row["flight_no"])
+                duration = int(row["duration_minutes"] or 0)
                 flight = {
-                    "origin": origin,
-                    "origin_name": origin_name,
-                    "destination": destination,
-                    "destination_name": destination_name,
-                    "flight_no": flight_no,
-                    "operating_flight_no": (row.get("operating_flight_no") or flight_no).strip().upper(),
+                    "origin": row["origin"],
+                    "origin_name": row["origin_name"],
+                    "destination": row["destination"],
+                    "destination_name": row["destination_name"],
+                    "flight_no": row["flight_no"],
+                    "operating_flight_no": row["operating_flight_no"],
                     "airline_code": code,
                     "airline": AIRLINE_MAP.get(code, code),
-                    "departure_date": dep_date,
-                    "departure_time": dep_time,
-                    "arrival_date": arr_date,
-                    "arrival_time": arr_time,
+                    "departure_date": row["departure_date"],
+                    "departure_time": row["departure_time"],
+                    "arrival_date": row["arrival_date"],
+                    "arrival_time": row["arrival_time"],
                     "departure_dt": dep_dt,
                     "arrival_dt": arr_dt,
                     "duration_minutes": duration,
                     "duration_text": minutes_text(duration),
-                    "aircraft": (row.get("aircraft") or "").strip(),
-                    "code_share": str(row.get("code_share") or "").lower() == "true",
-                    "stop_quantity": int(float(row.get("stop_quantity") or 0)),
-                    "product": product_for_departure(dep_time),
+                    "aircraft": row["aircraft"],
+                    "code_share": bool(row["code_share"]),
+                    "stop_quantity": int(row["stop_quantity"] or 0),
+                    "product": product_for_departure(row["departure_time"]),
                     "cross_day": (arr_dt.date() - dep_dt.date()).days,
-
-                    # 新 flight_daily.csv 的 B 舱 / 规则状态。
-                    # 这里只给日历使用，不改变原页面其他查询和布局。
-                    "flight_running": csv_bool(row.get("flight_running", True)),
-                    "b_status": (row.get("b_status") or "").strip(),
-                    "b_expected_or_seen": csv_bool(row.get("b_expected_or_seen")),
-                    "b_visible_raw": csv_bool(row.get("b_visible_raw")),
-                    "holiday_blocked": csv_bool(row.get("holiday_blocked")),
-                    "status_666": (row.get("status_666") or "").strip(),
-                    "eligible_666": csv_bool(row.get("eligible_666")),
-                    "status_2666": (row.get("status_2666") or "").strip(),
-                    "eligible_2666": csv_bool(row.get("eligible_2666")),
+                    "flight_running": bool(row["flight_running"]),
+                    "b_status": row["b_status"],
+                    "b_expected_or_seen": bool(row["b_expected_or_seen"]),
+                    "b_visible_raw": bool(row["b_visible_raw"]),
+                    "holiday_blocked": bool(row["holiday_blocked"]),
+                    "status_666": row["status_666"],
+                    "eligible_666": bool(row["eligible_666"]),
+                    "status_2666": row["status_2666"],
+                    "eligible_2666": bool(row["eligible_2666"]),
                 }
                 raw.append(flight)
-                dates.append(dep_date)
-                self.airports[origin] = origin_name
-                self.airports[destination] = destination_name
+                dates.append(row["departure_date"])
+                self.airports[row["origin"]] = row["origin_name"]
+                self.airports[row["destination"]] = row["destination_name"]
                 self.airlines[code] = AIRLINE_MAP.get(code, code)
 
         raw.sort(key=lambda x: x["departure_dt"])
@@ -296,7 +294,52 @@ class FlightStore:
             flights.sort(key=lambda x: x["departure_dt"])
             self.by_origin_times[origin] = [f["departure_dt"] for f in flights]
 
+        self.city_airports = {
+            city: [code for code in codes if code in self.airports]
+            for city, codes in CITY_AIRPORT_MAP.items()
+        }
+        self.city_airports = {city: codes for city, codes in self.city_airports.items() if codes}
+        self.city_by_airport = {
+            code: city for city, codes in self.city_airports.items() for code in codes
+        }
         self._build_route_overview()
+
+    def city_options(self):
+        return [
+            {"name": city, "codes": codes, "label": f"{city}（{'/'.join(codes)}）"}
+            for city, codes in sorted(self.city_airports.items())
+            if len(codes) >= 2
+        ]
+
+    def resolve_origins(self, value):
+        raw = str(value or "").strip()
+        if not raw:
+            return [], "", False
+        upper = raw.upper()
+        if upper in self.airports:
+            return [upper], self.airports.get(upper, upper), False
+        if raw in self.city_airports:
+            codes = self.city_airports[raw]
+            return list(codes), raw, len(codes) > 1
+
+        matched = [
+            code for code, name in self.airports.items()
+            if raw.lower() in str(name).lower()
+        ]
+        if matched:
+            matched = sorted(set(matched))
+            mapped_cities = {self.city_by_airport.get(code) for code in matched}
+            mapped_cities.discard(None)
+            if len(mapped_cities) == 1:
+                city = next(iter(mapped_cities))
+                city_codes = [c for c in self.city_airports.get(city, []) if c in matched]
+                if city_codes:
+                    return city_codes, city, len(city_codes) > 1
+            if len(matched) == 1:
+                code = matched[0]
+                return matched, self.airports.get(code, code), False
+            return matched, raw, len(matched) > 1
+        return [], raw, False
 
     def _build_route_overview(self):
         groups = defaultdict(lambda: {
@@ -354,6 +397,7 @@ class FlightStore:
             "airport_count": len(self.airports),
             "airports": airports,
             "airlines": airlines,
+            "cities": self.city_options(),
             "membership_rules": {"666": "08:00前或20:00后出发", "2666": "全天覆盖"},
         }
 
@@ -455,25 +499,28 @@ class FlightStore:
             items.sort(key=lambda x: (x["departure_dt"], x["stops"], x["total_minutes"]))
         return items
 
-    def routes_from(self, origin, membership="all", airline="", query=""):
-        """
-        动态生成航线总览。
+    def routes_from(self, origin, membership="all", airline="", query="", weekday=""):
+        origin_codes, origin_name, aggregate_mode = self.resolve_origins(origin)
+        if not origin_codes:
+            return []
 
-        页面布局和原筛选方式保持不变；这里额外把新 flight_daily.csv 中的
-        B 舱状态按日期聚合给日历：
-        - b_candidate_dates：有 / 有过 B 舱（当前可见或规则上应有但已隐藏/售罄）
-        - running_only_dates：航班运行，但该会员规则下不算 B 候选（节假日/时段过滤）
-        - b_visible_dates：当前响应里明确看到了 B（仅供 tooltip，页面不展示余票）
-        """
         q = (query or "").strip().lower()
+        try:
+            weekday_value = int(str(weekday).strip()) if str(weekday).strip() else None
+        except (TypeError, ValueError):
+            weekday_value = None
+        if weekday_value not in {1, 2, 3, 4, 5, 6, 7}:
+            weekday_value = None
 
         groups = defaultdict(lambda: {
             "weekdays": set(),
             "dates": set(),
-            "flight_nos": set(),
             "flight_records": [],
             "airlines": set(),
             "products": set(),
+            "origins": set(),
+            "destinations": set(),
+            "airport_pairs": set(),
             "b_candidate_dates": set(),
             "b_visible_dates": set(),
             "running_only_dates": set(),
@@ -481,72 +528,88 @@ class FlightStore:
             "date_flights": defaultdict(set),
         })
 
-        for f in self.by_origin_sorted.get(origin, []):
-            # 保持原网站的会员筛选逻辑，不改页面其他结果。
-            if not product_eligible(f["departure_time"], membership):
-                continue
-            if airline and f["airline_code"] != airline:
-                continue
-
-            if q:
-                haystack = " ".join([
-                    f["destination"],
-                    f["destination_name"],
-                    f["flight_no"],
-                    f["airline"],
-                    f["airline_code"],
-                ]).lower()
-                if q not in haystack:
+        for origin_code in origin_codes:
+            for f in self.by_origin_sorted.get(origin_code, []):
+                if weekday_value and f["departure_dt"].weekday() + 1 != weekday_value:
+                    continue
+                if not product_eligible(f["departure_time"], membership):
+                    continue
+                if airline and f["airline_code"] != airline:
                     continue
 
-            g = groups[f["destination"]]
-            g["weekdays"].add(f["departure_dt"].weekday() + 1)
-            g["dates"].add(f["departure_date"])
-            g["flight_nos"].add(f["flight_no"])
-            g["flight_records"].append(f)
-            g["airlines"].add(f["airline"])
-            g["products"].add(f["product"])
-            g["date_flights"][f["departure_date"]].add(f["flight_no"])
+                destination_city = self.city_by_airport.get(f["destination"])
+                if q:
+                    haystack = " ".join([
+                        f["destination"], f["destination_name"], destination_city or "",
+                        f["flight_no"], f["airline"], f["airline_code"],
+                    ]).lower()
+                    if q not in haystack:
+                        continue
 
-            if membership == "666":
-                b_candidate = f["eligible_666"]
-                b_visible = f["eligible_666"] and f["b_visible_raw"]
-            elif membership == "2666":
-                b_candidate = f["eligible_2666"]
-                b_visible = f["eligible_2666"] and f["b_visible_raw"]
-            else:
-                b_candidate = f["b_expected_or_seen"]
-                b_visible = f["b_visible_raw"] and f["b_expected_or_seen"]
+                if aggregate_mode and destination_city:
+                    group_key = f"CITY:{destination_city}"
+                    destination_name = destination_city
+                else:
+                    group_key = f["destination"]
+                    destination_name = f["destination_name"]
 
-            if b_candidate:
-                g["b_candidate_dates"].add(f["departure_date"])
-            else:
-                g["running_only_dates"].add(f["departure_date"])
+                g = groups[group_key]
+                g["destination_name"] = destination_name
+                g["weekdays"].add(f["departure_dt"].weekday() + 1)
+                g["dates"].add(f["departure_date"])
+                g["flight_records"].append(f)
+                g["airlines"].add(f["airline"])
+                g["products"].add(f["product"])
+                g["origins"].add(f["origin"])
+                g["destinations"].add(f["destination"])
+                g["airport_pairs"].add((f["origin"], f["destination"]))
+                g["date_flights"][f["departure_date"]].add(f["flight_no"])
 
-            if b_visible:
-                g["b_visible_dates"].add(f["departure_date"])
+                if membership == "666":
+                    b_candidate = f["eligible_666"]
+                    b_visible = f["eligible_666"] and f["b_visible_raw"]
+                elif membership == "2666":
+                    b_candidate = f["eligible_2666"]
+                    b_visible = f["eligible_2666"] and f["b_visible_raw"]
+                else:
+                    b_candidate = f["b_expected_or_seen"]
+                    b_visible = f["b_visible_raw"] and f["b_expected_or_seen"]
 
-            if f["holiday_blocked"]:
-                g["holiday_blocked_dates"].add(f["departure_date"])
+                if b_candidate:
+                    g["b_candidate_dates"].add(f["departure_date"])
+                else:
+                    g["running_only_dates"].add(f["departure_date"])
+                if b_visible:
+                    g["b_visible_dates"].add(f["departure_date"])
+                if f["holiday_blocked"]:
+                    g["holiday_blocked_dates"].add(f["departure_date"])
 
         out = []
-        for destination, g in groups.items():
+        for group_key, g in groups.items():
             operating_dates = sorted(g["dates"])
             candidate_dates = sorted(g["b_candidate_dates"])
             visible_dates = sorted(g["b_visible_dates"])
             running_only_dates = sorted(g["running_only_dates"] - g["b_candidate_dates"])
             holiday_blocked_dates = sorted(g["holiday_blocked_dates"])
             schedule_rows = representative_schedule_rows(g["flight_records"], tolerance_minutes=30)
+            destination_codes = sorted(g["destinations"])
+            route_origin_codes = sorted(g["origins"])
+            destination = "/".join(destination_codes)
 
             out.append({
-                "origin": origin,
-                "origin_name": self.airports.get(origin, origin),
+                "origin": "/".join(route_origin_codes),
+                "origin_name": origin_name,
+                "origin_codes": route_origin_codes,
                 "destination": destination,
-                "destination_name": self.airports.get(destination, destination),
+                "destination_codes": destination_codes,
+                "destination_name": g["destination_name"],
+                "aggregate": bool(aggregate_mode),
+                "airport_pairs": [
+                    {"origin": a, "destination": b}
+                    for a, b in sorted(g["airport_pairs"])
+                ],
                 "schedule": "".join(str(x) for x in sorted(g["weekdays"])),
                 "schedule_text": " ".join(f"周{WEEKDAY_CN[x]}" for x in sorted(g["weekdays"])),
-                # 总览时刻采用“同航班号 + 30 分钟容错 + 众数时刻”。
-                # 如存在真正相差较大的换季时段，则同一航班号会保留多个代表时刻。
                 "schedule_rows": schedule_rows,
                 "flight_nos": [row["flight_no"] for row in schedule_rows],
                 "times": [
@@ -561,6 +624,7 @@ class FlightStore:
                 ],
                 "airlines": sorted(g["airlines"]),
                 "products": sorted(g["products"]),
+                "flight_records_count": len(g["flight_records"]),
                 "operating_days": len(operating_dates),
                 "operating_dates": operating_dates,
                 "b_candidate_dates": candidate_dates,
@@ -575,14 +639,14 @@ class FlightStore:
                 "last_date": operating_dates[-1] if operating_dates else "",
                 "data_start": self.date_min,
                 "data_end": self.date_max,
+                "weekday_filter": weekday_value or 0,
             })
 
         out.sort(key=lambda x: (x["destination_name"], x["destination"]))
         return out
 
 
-
-STORE = FlightStore(DATA_FILE)
+STORE = FlightStore(DB_FILE)
 
 
 def serialize_flight(f):
@@ -642,20 +706,27 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/static/app.js":
             return self.send_file(BASE_DIR / "static" / "app.js")
         if path == "/api/health":
-            return self.send_json({"ok": True, "data_file": str(DATA_FILE), "records": len(STORE.flights)})
+            return self.send_json({"ok": True, "database": str(DB_FILE), "records": len(STORE.flights)})
         if path == "/api/meta":
             return self.send_json(STORE.meta())
         if path == "/api/routes":
-            origin = one(qs, "origin").strip().upper()
+            origin = one(qs, "origin").strip()
             if not origin:
                 return self.send_json({"error": "origin 为必填项"}, 400)
+            origin_codes, origin_name, aggregate = STORE.resolve_origins(origin)
+            if not origin_codes:
+                return self.send_json({"error": "没有找到这个城市或机场"}, 400)
             rows = STORE.routes_from(
                 origin,
                 membership=one(qs, "membership", "all"),
                 airline=one(qs, "airline").strip().upper(),
                 query=one(qs, "q"),
+                weekday=one(qs, "weekday"),
             )
-            return self.send_json({"origin": origin, "origin_name": STORE.airports.get(origin, origin), "count": len(rows), "routes": rows})
+            return self.send_json({
+                "origin": origin, "origin_name": origin_name, "origin_codes": origin_codes,
+                "aggregate": aggregate, "count": len(rows), "routes": rows
+            })
         if path == "/api/search":
             origin = one(qs, "origin").strip().upper()
             destination = one(qs, "destination").strip().upper()
@@ -689,7 +760,7 @@ def main():
     parser.add_argument("--port", type=int, default=5000)
     args = parser.parse_args()
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
-    print(f"数据：{DATA_FILE}")
+    print(f"数据库：{DB_FILE}")
     print(f"记录：{len(STORE.flights):,}，航线：{STORE.meta()['route_count']:,}，日期：{STORE.date_min} ~ {STORE.date_max}")
     print(f"打开：http://{args.host}:{args.port}")
     try:
