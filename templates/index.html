@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="color-scheme" content="light" />
-  <title>海航 PLUS 航线查询</title>
+  <title>海航PLUS快捷查询</title>
   <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
@@ -13,7 +13,7 @@
       <div class="hero-inner">
         <div>
           <div class="eyebrow">HNA PLUS ROUTE FINDER</div>
-          <h1>海航 PLUS · 航线搜索</h1>
+          <h1>海航PLUS快捷查询</h1>
         </div>
         <div class="data-badge" id="dataBadge">正在读取数据…</div>
       </div>
@@ -129,8 +129,7 @@
           <div class="search-grid overview-filter-grid">
             <label class="field">
               <span>出发城市 / 机场</span>
-              <input id="overviewOrigin" list="overviewOriginOptions" placeholder="城市 / 机场 / 三字码" autocomplete="off" />
-              <datalist id="overviewOriginOptions"></datalist>
+              <select id="overviewOriginSelect"></select>
             </label>
             <label class="field">
               <span>会员版本</span>

@@ -33,7 +33,9 @@ function airportInfo(code) {
 
 function airportLabel(code) {
   const item = airportInfo(code);
-  return item ? `${item.name} ${item.code}` : '';
+  if (item) return `${item.name} ${item.code}`;
+  const city = META?.cities?.find(x => x.name === code);
+  return city ? `${city.name} ${city.codes.join('/')}` : '';
 }
 
 function airportMatches(item, keyword) {
@@ -56,7 +58,7 @@ function refreshAllAirportPickers() {
   Object.keys(AIRPORT_PICKERS).forEach(refreshAirportPicker);
 }
 
-function enhanceAirportSelect(selectId, placeholder) {
+function enhanceAirportSelect(selectId, placeholder, allowCities=false) {
   const select = $(selectId);
   if (!select || AIRPORT_PICKERS[selectId]) return;
 
@@ -144,7 +146,7 @@ function enhanceAirportSelect(selectId, placeholder) {
 
     if (!grouped) {
       grid.innerHTML = items.map(item => `
-        <button type="button" class="airport-city" data-code="${esc(item.code)}">
+        <button type="button" class="airport-city" data-value="${esc(item.value || item.code)}">
           <span class="airport-city-name">${esc(item.name)}</span>
           <span class="airport-city-code">${esc(item.code)}</span>
         </button>`).join('');
@@ -161,7 +163,7 @@ function enhanceAirportSelect(selectId, placeholder) {
     grid.innerHTML = [...groups.entries()].map(([letter, groupItems]) => `
       <div class="airport-letter-row">${esc(letter)}</div>
       ${groupItems.map(item => `
-        <button type="button" class="airport-city" data-code="${esc(item.code)}">
+        <button type="button" class="airport-city" data-value="${esc(item.value || item.code)}">
           <span class="airport-city-name">${esc(item.name)}</span>
           <span class="airport-city-code">${esc(item.code)}</span>
         </button>`).join('')}
@@ -173,7 +175,19 @@ function enhanceAirportSelect(selectId, placeholder) {
     clearBtn.hidden = !keyword;
 
     if (keyword) {
-      const matched = (META.airports || []).filter(item => airportMatches(item, keyword));
+      const matchedAirports = (META.airports || []).filter(item => airportMatches(item, keyword));
+      const normalized = keyword.trim().toUpperCase().replace(/\s+/g, '');
+      const matchedCities = allowCities ? (META.cities || [])
+        .filter(city => [city.name, city.label, ...(city.codes || [])]
+          .some(v => String(v || '').toUpperCase().replace(/\s+/g, '').includes(normalized)))
+        .map(city => ({
+          name: city.name,
+          code: (city.codes || []).join('/'),
+          value: city.name,
+          label: city.label,
+          aggregate: true,
+        })) : [];
+      const matched = [...matchedCities, ...matchedAirports];
       renderTabs();
       renderGrid(matched, `搜索结果 · ${matched.length}`, false);
       return;
@@ -245,7 +259,7 @@ function enhanceAirportSelect(selectId, placeholder) {
     if (e.key === 'Enter') {
       e.preventDefault();
       const first = grid.querySelector('.airport-city');
-      if (first) choose(first.dataset.code);
+      if (first) choose(first.dataset.value);
     }
   });
 
@@ -276,7 +290,7 @@ function enhanceAirportSelect(selectId, placeholder) {
 
   grid.addEventListener('click', (e) => {
     const btn = e.target.closest('.airport-city');
-    if (btn) choose(btn.dataset.code);
+    if (btn) choose(btn.dataset.value);
   });
 
   select.addEventListener('change', () => refreshAirportPicker(selectId));
@@ -299,8 +313,11 @@ function setDefaultAirports() {
   const dest = $('destinationSelect');
   if ([...origin.options].some(o => o.value === 'PEK')) origin.value = 'PEK';
   if ([...dest.options].some(o => o.value === 'CAN')) dest.value = 'CAN';
+  const overview = $('overviewOriginSelect');
   const hasBeijing = (META.cities || []).some(x => x.name === '北京');
-  $('overviewOrigin').value = hasBeijing ? '北京' : (origin.value || 'PEK');
+  overview.value = hasBeijing && [...overview.options].some(o => o.value === '北京')
+    ? '北京'
+    : (origin.value || 'PEK');
   refreshAllAirportPickers();
 }
 
@@ -310,12 +327,11 @@ async function init() {
   $('dataBadge').textContent = `数据 ${META.date_min} → ${META.date_max}`;
   $('originSelect').innerHTML = optionHtml(META.airports, '选择出发机场');
   $('destinationSelect').innerHTML = optionHtml(META.airports, '选择到达机场');
-  $('overviewOriginOptions').innerHTML = [
-    ...(META.cities || []).map(x => `<option value="${esc(x.name)}" label="${esc(x.label)}"></option>`),
-    ...(META.airports || []).map(x => `<option value="${esc(x.code)}" label="${esc(x.name)} ${esc(x.code)}"></option>`)
-  ].join('');
+  $('overviewOriginSelect').innerHTML = optionHtml(META.airports, '选择出发城市 / 机场')
+    + (META.cities || []).map(x => `<option value="${esc(x.name)}">${esc(x.label)}</option>`).join('');
   enhanceAirportSelect('originSelect', '输入出发城市 / 机场 / 三字码');
   enhanceAirportSelect('destinationSelect', '输入到达城市 / 机场 / 三字码');
+  enhanceAirportSelect('overviewOriginSelect', '输入出发城市 / 机场 / 三字码', true);
   $('airlineSelect').innerHTML = `<option value="">全部航司</option>` + META.airlines.map(x => `<option value="${x.code}">${x.label}</option>`).join('');
   $('overviewAirline').innerHTML = $('airlineSelect').innerHTML;
   $('membershipSelect').value = '666';
@@ -457,31 +473,19 @@ function groupedDateText(dates) {
 function routeCalendarHtml(route) {
   const startText = route.data_start || META.date_min;
   const endText = route.data_end || META.date_max;
-  const serviceStart = route.first_date || startText;
-  const serviceEnd = route.last_date || endText;
-
   const operating = new Set(route.operating_dates || []);
-  const bCandidate = new Set(route.b_candidate_dates || []);
-  const bVisible = new Set(route.b_visible_dates || []);
-  const runningOnly = new Set(route.running_only_dates || []);
-  const holidayBlocked = new Set(route.holiday_blocked_dates || []);
   const dateFlights = route.date_flights || {};
-
-  // “无航班记录”只统计该航线第一次出现到最后一次出现之间的空缺日期。
-  // 首次出现之前 / 最后出现之后仍显示为观察区间外，避免误判。
   const weekdayFilter = Number(route.weekday_filter || 0);
+
   const matchesWeekday = (date) => {
     if (!weekdayFilter) return true;
     const day = new Date(`${date}T00:00:00`).getDay();
     return (day === 0 ? 7 : day) === weekdayFilter;
   };
-  const serviceDates = dateRangeList(serviceStart, serviceEnd).filter(matchesWeekday);
-  const inactiveDates = serviceDates.filter(d => !operating.has(d));
 
   const start = new Date(`${startText}T00:00:00`);
   const end = new Date(`${endText}T00:00:00`);
   const months = [];
-
   let cursor = new Date(start.getFullYear(), start.getMonth(), 1);
   const lastMonth = new Date(end.getFullYear(), end.getMonth(), 1);
 
@@ -491,8 +495,8 @@ function routeCalendarHtml(route) {
     const daysInMonth = new Date(year, month, 0).getDate();
     const firstDay = new Date(year, month - 1, 1);
     const mondayOffset = (firstDay.getDay() + 6) % 7;
-
     const cells = [];
+
     for (let i = 0; i < mondayOffset; i++) {
       cells.push('<span class="calendar-day blank"></span>');
     }
@@ -500,35 +504,21 @@ function routeCalendarHtml(route) {
     for (let day = 1; day <= daysInMonth; day++) {
       const date = isoDateLocal(year, month, day);
       const inRange = date >= startText && date <= endText;
-      const isOperating = operating.has(date);
-      const hasBCandidate = bCandidate.has(date);
-      const hasBVisible = bVisible.has(date);
-      const isRunningOnly = runningOnly.has(date) || (isOperating && !hasBCandidate);
-      const isHoliday = holidayBlocked.has(date);
+      const selectedWeekday = matchesWeekday(date);
+      const isOperating = operating.has(date) && selectedWeekday;
       const flights = (dateFlights[date] || []).join(' / ');
 
       let cls = 'calendar-day';
       let title = '';
-
-      if (!inRange) {
+      if (!inRange || (weekdayFilter && !selectedWeekday)) {
         cls += ' outside';
-      } else if (weekdayFilter && !matchesWeekday(date)) {
-        cls += ' outside-window';
-        title = `${date}：未选择该星期`;
-      } else if (hasBCandidate) {
-        cls += ' b-candidate';
-        title = `${date}：航班运行；有/有过 B 舱${hasBVisible ? '（当前响应可见 B）' : ''}${flights ? `；${flights}` : ''}`;
-      } else if (isRunningOnly) {
-        cls += ' running-only';
-        title = `${date}：航班运行，但当前规则下不计 B 舱${isHoliday ? '（节假日过滤）' : ''}${flights ? `；${flights}` : ''}`;
-      } else if (date >= serviceStart && date <= serviceEnd) {
-        cls += ' inactive';
-        title = `${date}：该航线首末出现区间内无航班记录`;
+      } else if (isOperating) {
+        cls += ' route-on';
+        title = `${date}：有航线${flights ? `；${flights}` : ''}`;
       } else {
-        cls += ' outside-window';
-        title = `${date}：该航线首末出现日期之外`;
+        cls += ' route-off';
+        title = `${date}：无航线`;
       }
-
       cells.push(`<span class="${cls}" title="${esc(title)}">${day}</span>`);
     }
 
@@ -541,30 +531,23 @@ function routeCalendarHtml(route) {
         <div class="calendar-days">${cells.join('')}</div>
       </div>
     `);
-
     cursor = new Date(year, month, 1);
   }
 
   return `
     <div class="route-date-panel">
-      <div class="route-date-summary">
-        <div><span class="legend-dot b-candidate"></span><strong>有/有过 B 舱 ${bCandidate.size} 天</strong></div>
-        <div><span class="legend-dot running-only"></span><strong>航班运行但无 B ${runningOnly.size} 天</strong></div>
-        <div><span class="legend-dot inactive"></span><strong>首末出现区间内无航班记录 ${inactiveDates.length} 天</strong></div>
-        <div><span class="legend-dot outside-window"></span><strong>首末出现区间外</strong></div>
+      <div class="route-date-summary simple-route-legend">
+        <div><span class="legend-dot route-on"></span><strong>有航线</strong></div>
+        <div><span class="legend-dot route-off"></span><strong>无航线</strong></div>
       </div>
       <div class="route-calendars">${months.join('')}</div>
-      <details class="inactive-date-list">
-        <summary>查看首末出现区间内无航班记录的具体日期（${inactiveDates.length} 天）</summary>
-        <div class="date-list-content">${groupedDateText(inactiveDates) || '无'}</div>
-      </details>
     </div>
   `;
 }
 
 
 async function loadOverview() {
-  const origin = $('overviewOrigin').value.trim() || $('originSelect').value;
+  const origin = $('overviewOriginSelect').value.trim() || $('originSelect').value;
   if (!origin) return;
   const p = new URLSearchParams({
     origin,
@@ -590,7 +573,7 @@ async function loadOverview() {
 
     return `
       <tr class="route-main-row">
-        <td class="dest"><strong>${esc(x.destination_name)}</strong> <span class="tag aggregate-tag">${x.flight_records_count} 班</span><div class="sub">${esc(x.airlines.join(' / '))}</div></td>
+        <td class="dest"><div class="dest-title-line"><strong>${esc(x.destination_name)}</strong><span class="route-flight-count">${x.flight_records_count} 班</span></div><div class="sub">${esc(x.airlines.join(' / '))}</div></td>
         <td>${airportText}</td>
         <td>${x.flight_nos.map(esc).join('<br>')}</td>
         <td class="mono">${times}</td>
@@ -645,8 +628,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   $('searchBtn').addEventListener('click', searchFlights);
   $('overviewBtn').addEventListener('click', loadOverview);
-  $('overviewOrigin').addEventListener('change', loadOverview);
-  $('overviewOrigin').addEventListener('keydown', e => { if (e.key === 'Enter') loadOverview(); });
+  $('overviewOriginSelect').addEventListener('change', loadOverview);
   $('overviewMembership').addEventListener('change', loadOverview);
   $('overviewWeekday').addEventListener('change', loadOverview);
   $('overviewAirline').addEventListener('change', loadOverview);
