@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'scripts/apply_route_vertical_triangle.py'
+      - '.github/workflows/apply-route-vertical-triangle.yml'
 
 permissions:
   contents: write
