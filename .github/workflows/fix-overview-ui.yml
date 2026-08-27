@@ -33,6 +33,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm .github/workflows/fix-overview-ui.yml scripts/fix_overview_ui.py
           git add templates/index.html public/index.html static/app.js public/static/app.js static/style.css public/static/style.css
-          git diff --cached --check
           git commit -m "Fix overview picker and simplify route calendar"
           git push
