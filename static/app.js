@@ -574,7 +574,7 @@ async function loadOverview() {
 
     return `
       <tr class="route-main-row">
-        <td class="dest"><div class="dest-title-line"><strong>${esc(x.destination_name)}</strong><span class="route-flight-count">${x.flight_records_count} 班</span></div><div class="sub">${esc(x.airlines.join(' / '))}</div></td>
+        <td class="dest"><div class="dest-title-line"><strong>${esc(x.destination_name)}</strong><span class="route-flight-count">${(x.flight_nos || []).length} 班</span></div><div class="sub">${esc(x.airlines.join(' / '))}</div></td>
         <td>${airportText}</td>
         <td>${x.flight_nos.map(esc).join('<br>')}</td>
         <td class="mono">${times}</td>
