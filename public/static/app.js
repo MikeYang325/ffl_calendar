@@ -2,6 +2,7 @@ const $ = (id) => document.getElementById(id);
 let META = null;
 let tripMode = 'oneway';
 let overviewQueryTimer = null;
+let overviewAbortController = null;
 const AIRPORT_PICKERS = {};
 
 const esc = (s) => String(s ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
@@ -42,10 +43,7 @@ function airportMatches(item, keyword) {
   if (!keyword) return true;
   const q = keyword.trim().toUpperCase().replace(/\s+/g, '');
   if (!q) return true;
-  return [item.name, item.code, item.label, item.initial, item.search]
-    .filter(Boolean)
-    .map(v => String(v).toUpperCase().replace(/\s+/g, ''))
-    .some(v => v.includes(q));
+  return (item._searchKey || '').includes(q);
 }
 
 function refreshAirportPicker(selectId) {
@@ -100,22 +98,26 @@ function enhanceAirportSelect(selectId, placeholder, allowCities=false) {
   const state = {
     picker, select, input, dropdown, search, clearBtn, closeBtn,
     tabs, grid, resultTitle, activeTab: 'hot',
+    hotItems: null, lastRenderKey: null, renderedTabsFor: null, prewarmed: false,
   };
   AIRPORT_PICKERS[selectId] = state;
 
   function hotAirports() {
+    if (state.hotItems) return state.hotItems;
     const byCode = new Map((META.airports || []).map(x => [x.code, x]));
     const hot = HOT_AIRPORT_CODES.map(c => byCode.get(c)).filter(Boolean);
-    if (hot.length >= 12) return hot;
-    const seen = new Set(hot.map(x => x.code));
-    for (const item of (META.airports || [])) {
-      if (!seen.has(item.code)) {
-        hot.push(item);
-        seen.add(item.code);
+    if (hot.length < 12) {
+      const seen = new Set(hot.map(x => x.code));
+      for (const item of (META.airports || [])) {
+        if (!seen.has(item.code)) {
+          hot.push(item);
+          seen.add(item.code);
+        }
+        if (hot.length >= 30) break;
       }
-      if (hot.length >= 30) break;
     }
-    return hot;
+    state.hotItems = hot;
+    return state.hotItems;
   }
 
   function tabAirports(key) {
@@ -126,11 +128,13 @@ function enhanceAirportSelect(selectId, placeholder, allowCities=false) {
   }
 
   function renderTabs() {
+    if (state.renderedTabsFor === state.activeTab && tabs.childElementCount) return;
     tabs.innerHTML = AIRPORT_TAB_GROUPS.map(tab => `
       <button type="button" role="tab"
               class="airport-tab ${state.activeTab === tab.key ? 'active' : ''}"
               data-tab="${esc(tab.key)}">${esc(tab.label)}</button>
     `).join('');
+    state.renderedTabsFor = state.activeTab;
   }
 
   function renderGrid(items, title='', grouped=false) {
@@ -172,14 +176,16 @@ function enhanceAirportSelect(selectId, placeholder, allowCities=false) {
 
   function render() {
     const keyword = search.value.trim();
+    const renderKey = `${state.activeTab}\u0000${keyword}`;
     clearBtn.hidden = !keyword;
+    if (state.lastRenderKey === renderKey) return;
+    state.lastRenderKey = renderKey;
 
     if (keyword) {
       const matchedAirports = (META.airports || []).filter(item => airportMatches(item, keyword));
       const normalized = keyword.trim().toUpperCase().replace(/\s+/g, '');
       const matchedCities = allowCities ? (META.cities || [])
-        .filter(city => [city.name, city.label, ...(city.codes || [])]
-          .some(v => String(v || '').toUpperCase().replace(/\s+/g, '').includes(normalized)))
+        .filter(city => (city._searchKey || '').includes(normalized))
         .map(city => ({
           name: city.name,
           code: (city.codes || []).join('/'),
@@ -306,6 +312,21 @@ function enhanceAirportSelect(selectId, placeholder, allowCities=false) {
       if (r.right > window.innerWidth - 8) picker.classList.add('align-right');
     }
   });
+
+  state.prewarm = () => {
+    if (state.prewarmed) return;
+    render();
+    state.prewarmed = true;
+  };
+}
+
+function prewarmAirportPickers() {
+  const run = () => Object.values(AIRPORT_PICKERS).forEach(picker => picker.prewarm?.());
+  if ('requestIdleCallback' in window) {
+    window.requestIdleCallback(run, { timeout: 200 });
+  } else {
+    setTimeout(run, 16);
+  }
 }
 
 function setDefaultAirports() {
@@ -324,6 +345,18 @@ function setDefaultAirports() {
 async function init() {
   const res = await fetch('/api/meta');
   META = await res.json();
+  (META.airports || []).forEach(item => {
+    item._searchKey = [item.name, item.code, item.label, item.initial, item.search]
+      .filter(Boolean)
+      .map(v => String(v).toUpperCase().replace(/\s+/g, ''))
+      .join('|');
+  });
+  (META.cities || []).forEach(city => {
+    city._searchKey = [city.name, city.label, ...(city.codes || [])]
+      .filter(Boolean)
+      .map(v => String(v).toUpperCase().replace(/\s+/g, ''))
+      .join('|');
+  });
   $('dataBadge').textContent = `数据 ${META.date_min} → ${META.date_max}`;
   $('originSelect').innerHTML = optionHtml(META.airports, '选择出发机场');
   $('destinationSelect').innerHTML = optionHtml(META.airports, '选择到达机场');
@@ -344,6 +377,7 @@ async function init() {
   const plus7 = new Date(`${META.date_min}T00:00:00`); plus7.setDate(plus7.getDate()+7);
   $('returnDate').value = plus7.toISOString().slice(0,10) <= META.date_max ? plus7.toISOString().slice(0,10) : META.date_max;
   setDefaultAirports();
+  prewarmAirportPickers();
   renderStats();
   loadOverview();
 }
@@ -557,8 +591,20 @@ async function loadOverview() {
     airline: $('overviewAirline').value,
     q: $('overviewQuery').value.trim(),
   });
+  if (overviewAbortController) overviewAbortController.abort();
+  const controller = new AbortController();
+  overviewAbortController = controller;
   $('routesTableBody').innerHTML = '<tr><td colspan="7">正在加载…</td></tr>';
-  const r = await fetch('/api/routes?' + p.toString());
+
+  let r;
+  try {
+    r = await fetch('/api/routes?' + p.toString(), { signal: controller.signal });
+  } catch (error) {
+    if (error.name === 'AbortError') return;
+    throw error;
+  }
+  if (overviewAbortController !== controller) return;
+  overviewAbortController = null;
   const data = await r.json();
   $('routeCount').textContent = `${data.count} 条`;
 

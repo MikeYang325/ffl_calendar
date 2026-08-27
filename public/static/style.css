@@ -66,6 +66,7 @@ button { cursor:pointer; }
   width:min(620px, calc(100vw - 32px)); background:#fff;
   border:1px solid #dbe4ed; border-radius:14px;
   box-shadow:0 18px 48px rgba(28,52,82,.20); overflow:hidden;
+  contain:layout paint;
 }
 .airport-picker.align-right .airport-dropdown { left:auto; right:0; }
 
@@ -112,7 +113,7 @@ button { cursor:pointer; }
   height:2px; background:var(--primary); border-radius:2px 2px 0 0;
 }
 
-.airport-content { max-height:340px; overflow:auto; padding:16px 18px 18px; }
+.airport-content { max-height:340px; overflow:auto; padding:16px 18px 18px; contain:layout paint; }
 .airport-result-title {
   margin:0 0 8px; color:#6b7788; font-size:12px; font-weight:700;
 }
