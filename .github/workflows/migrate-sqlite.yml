@@ -1,0 +1,335 @@
+name: One-time SQLite migration
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/migrate-sqlite.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build SQLite database
+        run: python3 scripts/import_csv_to_sqlite.py data/flight_daily.csv data/flights.db
+
+      - name: Switch application to SQLite and update UI
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('app.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('import csv\n', 'import sqlite3\n')
+          text = text.replace(
+              'DATA_FILE = Path(os.environ.get("HNA_FLIGHT_CSV", BASE_DIR / "data" / "flight_daily.csv"))',
+              'DB_FILE = Path(os.environ.get("HNA_FLIGHT_DB", BASE_DIR / "data" / "flights.db"))'
+          )
+
+          start = text.index('class FlightStore:')
+          marker = '    def _build_route_overview(self):'
+          end = text.index(marker, start)
+          loader = '''class FlightStore:
+              def __init__(self, db_path):
+                  self.db_path = Path(db_path)
+                  self.flights = []
+                  self.by_date_origin = defaultdict(list)
+                  self.by_origin_sorted = defaultdict(list)
+                  self.by_origin_times = defaultdict(list)
+                  self.airports = {}
+                  self.airlines = {}
+                  self.date_min = ""
+                  self.date_max = ""
+                  self.route_overview = {}
+                  self.load()
+
+              def load(self):
+                  if not self.db_path.exists():
+                      raise FileNotFoundError(f"找不到数据库：{self.db_path}")
+
+                  raw, dates = [], []
+                  with sqlite3.connect(self.db_path) as conn:
+                      conn.row_factory = sqlite3.Row
+                      rows = conn.execute("""
+                          SELECT origin, origin_name, destination, destination_name,
+                                 flight_no, operating_flight_no, departure_date, departure_time,
+                                 arrival_date, arrival_time, duration_minutes, aircraft,
+                                 code_share, stop_quantity, flight_running, b_status,
+                                 b_expected_or_seen, b_visible_raw, holiday_blocked,
+                                 status_666, eligible_666, status_2666, eligible_2666
+                          FROM flights
+                          ORDER BY departure_date, departure_time, origin, destination, flight_no
+                      """)
+                      for db_row in rows:
+                          row = dict(db_row)
+                          dep_dt = parse_datetime(row["departure_date"], row["departure_time"])
+                          arr_dt = parse_datetime(row["arrival_date"], row["arrival_time"])
+                          code = airline_code(row["flight_no"])
+                          duration = int(row["duration_minutes"] or 0)
+                          flight = {
+                              "origin": row["origin"],
+                              "origin_name": row["origin_name"],
+                              "destination": row["destination"],
+                              "destination_name": row["destination_name"],
+                              "flight_no": row["flight_no"],
+                              "operating_flight_no": row["operating_flight_no"],
+                              "airline_code": code,
+                              "airline": AIRLINE_MAP.get(code, code),
+                              "departure_date": row["departure_date"],
+                              "departure_time": row["departure_time"],
+                              "arrival_date": row["arrival_date"],
+                              "arrival_time": row["arrival_time"],
+                              "departure_dt": dep_dt,
+                              "arrival_dt": arr_dt,
+                              "duration_minutes": duration,
+                              "duration_text": minutes_text(duration),
+                              "aircraft": row["aircraft"],
+                              "code_share": bool(row["code_share"]),
+                              "stop_quantity": int(row["stop_quantity"] or 0),
+                              "product": product_for_departure(row["departure_time"]),
+                              "cross_day": (arr_dt.date() - dep_dt.date()).days,
+                              "flight_running": bool(row["flight_running"]),
+                              "b_status": row["b_status"],
+                              "b_expected_or_seen": bool(row["b_expected_or_seen"]),
+                              "b_visible_raw": bool(row["b_visible_raw"]),
+                              "holiday_blocked": bool(row["holiday_blocked"]),
+                              "status_666": row["status_666"],
+                              "eligible_666": bool(row["eligible_666"]),
+                              "status_2666": row["status_2666"],
+                              "eligible_2666": bool(row["eligible_2666"]),
+                          }
+                          raw.append(flight)
+                          dates.append(row["departure_date"])
+                          self.airports[row["origin"]] = row["origin_name"]
+                          self.airports[row["destination"]] = row["destination_name"]
+                          self.airlines[code] = AIRLINE_MAP.get(code, code)
+
+                  raw.sort(key=lambda x: x["departure_dt"])
+                  self.flights = raw
+                  if dates:
+                      self.date_min, self.date_max = min(dates), max(dates)
+
+                  for flight in self.flights:
+                      self.by_date_origin[(flight["departure_date"], flight["origin"])].append(flight)
+                      self.by_origin_sorted[flight["origin"]].append(flight)
+
+                  for origin, flights in self.by_origin_sorted.items():
+                      flights.sort(key=lambda x: x["departure_dt"])
+                      self.by_origin_times[origin] = [f["departure_dt"] for f in flights]
+
+                  self._build_route_overview()
+
+          '''
+          # The triple-quoted loader has method indentation relative to the source string above.
+          loader = '\n'.join(line[12:] if line.startswith('            ') else line for line in loader.splitlines()) + '\n'
+          text = text[:start] + loader + text[end:]
+
+          text = text.replace(
+              'def routes_from(self, origin, membership="all", airline="", query=""):',
+              'def routes_from(self, origin, membership="all", airline="", query="", weekday=""):'
+          )
+          text = text.replace(
+              '        q = (query or "").strip().lower()\n\n        groups = defaultdict',
+              '        q = (query or "").strip().lower()\n        try:\n            weekday_value = int(str(weekday).strip()) if str(weekday).strip() else None\n        except (TypeError, ValueError):\n            weekday_value = None\n        if weekday_value not in {1, 2, 3, 4, 5, 6, 7}:\n            weekday_value = None\n\n        groups = defaultdict'
+          )
+          text = text.replace(
+              '        for f in self.by_origin_sorted.get(origin, []):\n            # 保持原网站的会员筛选逻辑，不改页面其他结果。',
+              '        for f in self.by_origin_sorted.get(origin, []):\n            if weekday_value and f["departure_dt"].weekday() + 1 != weekday_value:\n                continue\n            # 保持原网站的会员筛选逻辑，不改页面其他结果。'
+          )
+          text = text.replace('STORE = FlightStore(DATA_FILE)', 'STORE = FlightStore(DB_FILE)')
+          text = text.replace(
+              'return self.send_json({"ok": True, "data_file": str(DATA_FILE), "records": len(STORE.flights)})',
+              'return self.send_json({"ok": True, "database": str(DB_FILE), "records": len(STORE.flights)})'
+          )
+          text = text.replace(
+              '                query=one(qs, "q"),\n            )',
+              '                query=one(qs, "q"),\n                weekday=one(qs, "weekday"),\n            )'
+          )
+          text = text.replace('    print(f"数据：{DATA_FILE}")', '    print(f"数据库：{DB_FILE}")')
+          text = text.replace('新 flight_daily.csv 中的', '数据库中的')
+          path.write_text(text, encoding='utf-8')
+
+          hero_note = '          <p>基于 flight_daily.csv 的航班计划快照，查询直飞、中转、666 / 2666 适用航班。</p>\n'
+          rule_tip = '          <div class="rule-tip"><b>规则：</b>666 = 08:00 前或 20:00 后出发；2666 = 全天覆盖。中转默认要求 1–24 小时，总行程不超过 48 小时。</div>\n'
+          overview_note = '              <p>查看某个出发机场在整个数据周期内出现过的全部 PLUS 目的地。</p>\n'
+          search_membership = '''              <select id="membershipSelect">
+                <option value="all">全部</option>
+                <option value="666">666（08:00前 / 20:00后）</option>
+                <option value="2666">2666（全天）</option>
+              </select>'''
+          search_membership_new = '''              <select id="membershipSelect">
+                <option value="666" selected>666</option>
+                <option value="all">666/2666（全部）</option>
+              </select>'''
+          overview_membership = '''              <select id="overviewMembership">
+                <option value="all">全部</option>
+                <option value="666">666</option>
+                <option value="2666">2666</option>
+              </select>'''
+          overview_membership_new = '''              <select id="overviewMembership">
+                <option value="666" selected>666</option>
+                <option value="all">666/2666（全部）</option>
+              </select>'''
+          weekday_field = '''            <label class="field">
+              <span>出发日期</span>
+              <select id="overviewWeekday">
+                <option value="">全部日期</option>
+                <option value="1">周一</option>
+                <option value="2">周二</option>
+                <option value="3">周三</option>
+                <option value="4">周四</option>
+                <option value="5">周五</option>
+                <option value="6">周六</option>
+                <option value="7">周日</option>
+              </select>
+            </label>
+'''
+          for filename in ('templates/index.html', 'public/index.html'):
+              p = Path(filename)
+              html = p.read_text(encoding='utf-8')
+              html = html.replace(hero_note, '')
+              html = html.replace(rule_tip, '')
+              html = html.replace(overview_note, '')
+              html = html.replace(search_membership, search_membership_new)
+              html = html.replace(overview_membership, overview_membership_new)
+              html = html.replace(
+                  '<div class="search-grid advanced-grid">\n            <label class="field">\n              <span>出发城市 / 机场</span>\n              <select id="overviewOrigin"></select>',
+                  '<div class="search-grid overview-filter-grid">\n            <label class="field">\n              <span>出发城市 / 机场</span>\n              <select id="overviewOrigin"></select>'
+              )
+              anchor = overview_membership_new + '\n            </label>\n'
+              html = html.replace(anchor, anchor + weekday_field, 1)
+              html = html.replace('<span>筛选目的地 / 航班号</span>', '<span>搜索</span>')
+              html = html.replace('placeholder="例如 福州 / HU7195"', 'placeholder="目的地 / 机场 / 航班号"')
+              p.write_text(html, encoding='utf-8')
+
+          for filename in ('static/app.js', 'public/static/app.js'):
+              p = Path(filename)
+              js = p.read_text(encoding='utf-8')
+              js = js.replace("let tripMode = 'oneway';", "let tripMode = 'oneway';\nlet overviewQueryTimer = null;")
+              js = js.replace(
+                  "  $('overviewAirline').innerHTML = $('airlineSelect').innerHTML;",
+                  "  $('overviewAirline').innerHTML = $('airlineSelect').innerHTML;\n  $('membershipSelect').value = '666';\n  $('overviewMembership').value = '666';"
+              )
+              js = js.replace(
+                  "    membership: $('overviewMembership').value,\n    airline: $('overviewAirline').value,",
+                  "    membership: $('overviewMembership').value,\n    weekday: $('overviewWeekday').value,\n    airline: $('overviewAirline').value,"
+              )
+              js = js.replace(
+                  "    const scheduleTip = x.schedule === '1234567'\n      ? '<div class=\"sub schedule-warning\">周一至周日均有出现 ≠ 每天运行</div>'\n      : `<div class=\"sub\">${esc(x.schedule_text)}</div>`;\n\n",
+                  ""
+              )
+              js = js.replace('<td><strong>${esc(x.schedule)}</strong>${scheduleTip}</td>', '<td><strong>${esc(x.schedule)}</strong></td>')
+              js = js.replace(
+                  "  $('overviewMembership').addEventListener('change', loadOverview);\n  $('overviewAirline').addEventListener('change', loadOverview);\n  $('overviewQuery').addEventListener('keydown', e => { if (e.key === 'Enter') loadOverview(); });",
+                  "  $('overviewMembership').addEventListener('change', loadOverview);\n  $('overviewWeekday').addEventListener('change', loadOverview);\n  $('overviewAirline').addEventListener('change', loadOverview);\n  $('overviewQuery').addEventListener('input', () => {\n    clearTimeout(overviewQueryTimer);\n    overviewQueryTimer = setTimeout(loadOverview, 250);\n  });\n  $('overviewQuery').addEventListener('keydown', e => {\n    if (e.key === 'Enter') {\n      clearTimeout(overviewQueryTimer);\n      loadOverview();\n    }\n  });"
+              )
+              p.write_text(js, encoding='utf-8')
+
+          for filename in ('static/style.css', 'public/static/style.css'):
+              p = Path(filename)
+              css = p.read_text(encoding='utf-8')
+              css = css.replace(
+                  '.advanced-grid { grid-template-columns:repeat(4,minmax(0,1fr)); margin-top:14px; }',
+                  '.advanced-grid { grid-template-columns:repeat(4,minmax(0,1fr)); margin-top:14px; }\n.overview-filter-grid { grid-template-columns:repeat(5,minmax(0,1fr)); margin-top:14px; }'
+              )
+              css = css.replace('.options-row,.advanced-grid { grid-template-columns:1fr 1fr; }', '.options-row,.advanced-grid,.overview-filter-grid { grid-template-columns:1fr 1fr; }')
+              css = css.replace('.options-row,.advanced-grid { grid-template-columns:1fr; }', '.options-row,.advanced-grid,.overview-filter-grid { grid-template-columns:1fr; }')
+              p.write_text(css, encoding='utf-8')
+
+          readme = Path('README.md').read_text(encoding='utf-8')
+          readme = readme.replace(
+              '这是一个直接读取 `data/flight_daily.csv` 的本地网页工具，使用 Python 标准库实现，**不需要 pip 安装任何第三方包**。',
+              '这是一个直接读取 `data/flights.db` SQLite 数据库的网页工具，使用 Python 标准库实现，**不需要 pip 安装任何第三方包**。'
+          )
+          readme = readme.replace('- 666 / 2666 筛选', '- 会员筛选默认 666，可切换 666/2666（全部）')
+          readme = readme.replace('- 航司、航班号筛选', '- 航司、航班号筛选；航线总览支持按周一至周日筛选')
+          old_update = '''## 更新航班数据
+
+以后重新抓取数据，只需要覆盖：
+
+```text
+data/flight_daily.csv
+```
+
+然后重启网页程序即可，不需要改代码。'''
+          new_update = '''## 更新航班数据
+
+运行时数据已经迁移到 SQLite：
+
+```text
+data/flights.db
+```
+
+拿到新的 `flight_daily.csv` 后执行：
+
+```bash
+python3 scripts/import_csv_to_sqlite.py /path/to/flight_daily.csv data/flights.db
+```
+
+生成新的数据库后提交 `data/flights.db` 即可。CSV 只作为导入源，不再进入生产部署。'''
+          readme = readme.replace(old_update, new_update)
+          readme = readme.replace('- 当班期显示 `1234567` 时增加提示：这只表示周一至周日都曾出现，不代表每天运行\n', '')
+          readme = readme.replace('## 新 flight_daily.csv 日历状态', '## 数据库日历状态')
+          readme = readme.replace('当天 CSV 没有航班运行记录', '当天数据库没有航班运行记录')
+          readme = readme.replace('单日航班搜索仍显示 CSV 中当天的真实起降时刻，不做合并。', '单日航班搜索仍显示数据库中当天的真实起降时刻，不做合并。')
+          Path('README.md').write_text(readme, encoding='utf-8')
+
+          gitignore = Path('.gitignore').read_text(encoding='utf-8')
+          for pattern in ('data/*.csv', 'archive.b64', 'archive.b64.*'):
+              if pattern not in gitignore.splitlines():
+                  gitignore += pattern + '\n'
+          Path('.gitignore').write_text(gitignore, encoding='utf-8')
+
+          tests = Path('tests/test_calendar_status.py').read_text(encoding='utf-8')
+          tests = tests.replace('def test_new_csv_fields_loaded(self):', 'def test_database_fields_loaded(self):')
+          insert_after = '''    def test_pek_hgh_calendar_666(self):
+        route = self._pek_hgh("666")
+        self.assertIn("2026-09-01", route["b_candidate_dates"])
+        self.assertIn("2026-10-01", route["running_only_dates"])
+'''
+          weekday_test = '''
+    def test_route_weekday_filter(self):
+        rows = app.STORE.routes_from("PEK", membership="666", weekday="2")
+        self.assertTrue(rows)
+        for route in rows:
+            self.assertEqual(route["schedule"], "2")
+            self.assertTrue(all(__import__("datetime").date.fromisoformat(d).isoweekday() == 2 for d in route["operating_dates"]))
+'''
+          if 'test_route_weekday_filter' not in tests:
+              tests = tests.replace(insert_after, insert_after + weekday_test)
+          Path('tests/test_calendar_status.py').write_text(tests, encoding='utf-8')
+          PY
+
+      - name: Remove CSV and verify database
+        run: |
+          rm data/flight_daily.csv
+          python3 - <<'PY'
+          import sqlite3
+          conn = sqlite3.connect('data/flights.db')
+          count, dmin, dmax = conn.execute('SELECT COUNT(*), MIN(departure_date), MAX(departure_date) FROM flights').fetchone()
+          print(count, dmin, dmax)
+          assert count > 40000
+          assert dmin == '2026-09-01'
+          assert dmax == '2026-10-24'
+          PY
+
+      - name: Run tests
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Commit migration
+        run: |
+          rm -f .github/workflows/migrate-sqlite.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Migrate flight data to SQLite and improve filters"
+          git push origin main
