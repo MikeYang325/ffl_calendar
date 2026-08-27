@@ -628,7 +628,7 @@ async function loadOverview() {
         <td>
           <strong>${x.operating_days} 天</strong>
           <div class="sub">${esc(x.first_date)} ~ ${esc(x.last_date)}</div>
-          <button type="button" class="date-detail-btn" data-target="${dateId}">查看具体日期</button>
+          <button type="button" class="date-toggle-btn" data-target="${dateId}" aria-expanded="false" title="展开具体日期">▶</button>
         </td>
         <td>${x.products.map(p => `<span class="tag product">${esc(p)}</span>`).join(' ')}</td>
       </tr>
@@ -637,13 +637,15 @@ async function loadOverview() {
       </tr>`;
   }).join('') : '<tr><td colspan="7">没有匹配航线</td></tr>';
 
-  $('routesTableBody').querySelectorAll('.date-detail-btn').forEach(btn => {
+  $('routesTableBody').querySelectorAll('.date-toggle-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       const row = $(btn.dataset.target);
       if (!row) return;
       const opening = row.classList.contains('hidden');
       row.classList.toggle('hidden');
-      btn.textContent = opening ? '收起日期' : '查看具体日期';
+      btn.textContent = opening ? '▼' : '▶';
+      btn.setAttribute('aria-expanded', opening ? 'true' : 'false');
+      btn.title = opening ? '收起具体日期' : '展开具体日期';
     });
   });
 }

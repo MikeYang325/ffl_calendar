@@ -723,3 +723,33 @@ body { background:linear-gradient(180deg,#f3eee9 0,#f7f4f1 55%,#f3eee9 100%); }
   justify-content: center;
 }
 
+/* route rows: vertically centered + compact date disclosure */
+.routes-table .route-main-row > td {
+  vertical-align: middle;
+}
+.routes-table .route-main-row .dest,
+.routes-table .route-main-row .dest-title-line {
+  align-items: center;
+}
+.date-toggle-btn {
+  display: block;
+  width: 22px;
+  height: 18px;
+  margin: 4px auto 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 18px;
+  text-align: center;
+  cursor: pointer;
+}
+.date-toggle-btn:hover,
+.date-toggle-btn:focus-visible {
+  background: rgba(162, 11, 42, .08);
+  outline: none;
+}
+
