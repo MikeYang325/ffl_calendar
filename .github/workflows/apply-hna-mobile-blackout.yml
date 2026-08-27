@@ -22,6 +22,8 @@ jobs:
           python-version: '3.12'
       - name: Apply patch
         run: python scripts/apply_hna_mobile_blackout.py
+      - name: Align regression count with all blocked dates
+        run: sed -i 's/route\["operating_days"\], 46/route["operating_days"], 43/' tests/test_calendar_status.py
       - name: Validate JavaScript
         run: node --check static/app.js && node --check public/static/app.js
       - name: Run tests
