@@ -580,6 +580,85 @@ function routeCalendarHtml(route) {
 }
 
 
+let activeMobileCalendarButton = null;
+
+function ensureMobileRouteCalendarSheet() {
+  let overlay = document.querySelector('.mobile-route-calendar-overlay');
+  if (overlay) return overlay;
+
+  overlay = document.createElement('div');
+  overlay.className = 'mobile-route-calendar-overlay';
+  overlay.hidden = true;
+  overlay.innerHTML = `
+    <section class="mobile-route-calendar-sheet" role="dialog" aria-modal="true" aria-label="具体运行日期">
+      <div class="mobile-route-calendar-head">
+        <div>
+          <strong>具体运行日期</strong>
+          <span class="mobile-route-calendar-subtitle"></span>
+        </div>
+        <button type="button" class="mobile-route-calendar-close" aria-label="关闭">×</button>
+      </div>
+      <div class="mobile-route-calendar-scroll"></div>
+    </section>`;
+  document.body.appendChild(overlay);
+
+  const close = () => closeMobileRouteCalendarSheet();
+  overlay.querySelector('.mobile-route-calendar-close').addEventListener('click', close);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) close();
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && !overlay.hidden) close();
+  });
+  window.addEventListener('resize', () => {
+    if (window.innerWidth > 640 && !overlay.hidden) close();
+  });
+  return overlay;
+}
+
+function closeMobileRouteCalendarSheet() {
+  const overlay = document.querySelector('.mobile-route-calendar-overlay');
+  if (!overlay || overlay.hidden) return;
+  overlay.classList.remove('open');
+  document.body.classList.remove('mobile-calendar-open');
+  if (activeMobileCalendarButton) {
+    activeMobileCalendarButton.textContent = '▶';
+    activeMobileCalendarButton.setAttribute('aria-expanded', 'false');
+    activeMobileCalendarButton = null;
+  }
+  setTimeout(() => {
+    if (!overlay.classList.contains('open')) overlay.hidden = true;
+  }, 180);
+}
+
+function openMobileRouteCalendarSheet(route, button) {
+  const overlay = ensureMobileRouteCalendarSheet();
+  if (activeMobileCalendarButton === button && !overlay.hidden) {
+    closeMobileRouteCalendarSheet();
+    return;
+  }
+
+  if (activeMobileCalendarButton && activeMobileCalendarButton !== button) {
+    activeMobileCalendarButton.textContent = '▶';
+    activeMobileCalendarButton.setAttribute('aria-expanded', 'false');
+  }
+  activeMobileCalendarButton = button;
+  button.textContent = '▼';
+  button.setAttribute('aria-expanded', 'true');
+
+  const airportText = route.aggregate
+    ? `${(route.origin_codes || []).join('/')} → ${(route.destination_codes || []).join('/')}`
+    : `${route.origin || ''} → ${(route.destination_codes || [route.destination]).join('/')}`;
+  overlay.querySelector('.mobile-route-calendar-subtitle').textContent =
+    `${route.destination_name} · ${route.operating_days}天${airportText.trim() ? ` · ${airportText}` : ''}`;
+  overlay.querySelector('.mobile-route-calendar-scroll').innerHTML = routeCalendarHtml(route);
+
+  overlay.hidden = false;
+  document.body.classList.add('mobile-calendar-open');
+  requestAnimationFrame(() => overlay.classList.add('open'));
+}
+
+
 async function loadOverview() {
   const origin = $('overviewOriginSelect').value.trim() || $('originSelect').value;
   if (!origin) return;
@@ -626,7 +705,7 @@ async function loadOverview() {
         <td class="mono">${times}</td>
         <td><strong>${esc(x.schedule)}</strong></td>
         <td>
-          <div class="route-days-line"><strong>${x.operating_days} 天</strong><button type="button" class="date-toggle-btn" data-target="${dateId}" aria-expanded="false" title="展开具体日期">▶</button></div>
+          <div class="route-days-line"><strong>${x.operating_days} 天</strong><button type="button" class="date-toggle-btn" data-target="${dateId}" data-route-index="${idx}" aria-expanded="false" title="展开具体日期">▶</button></div>
           <div class="sub">${esc(x.first_date)} ~ ${esc(x.last_date)}</div>
         </td>
         <td>${x.products.map(p => `<span class="tag product">${esc(p)}</span>`).join(' ')}</td>
@@ -638,6 +717,11 @@ async function loadOverview() {
 
   $('routesTableBody').querySelectorAll('.date-toggle-btn').forEach(btn => {
     btn.addEventListener('click', () => {
+      if (window.matchMedia('(max-width: 640px)').matches) {
+        const route = data.routes[Number(btn.dataset.routeIndex)];
+        if (route) openMobileRouteCalendarSheet(route, btn);
+        return;
+      }
       const row = $(btn.dataset.target);
       if (!row) return;
       const opening = row.classList.contains('hidden');
