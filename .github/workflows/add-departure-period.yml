@@ -1,5 +1,6 @@
 name: Add departure period filter
 
+# rerun after regression test fix
 on:
   push:
     paths:
