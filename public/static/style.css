@@ -947,3 +947,54 @@ body.mobile-calendar-open { overflow:hidden; }
   }
 }
 
+/* Bind each flight number to its own time row; dashed separators make each pair scanable. */
+.flight-time-cell {
+  min-width: 220px;
+}
+.flight-time-pairs {
+  display: inline-flex;
+  flex-direction: column;
+  min-width: 205px;
+  max-width: 100%;
+  vertical-align: middle;
+}
+.flight-time-pair {
+  display: grid;
+  grid-template-columns: 72px minmax(118px, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-height: 28px;
+  padding: 4px 5px;
+  white-space: nowrap;
+}
+.flight-time-pair + .flight-time-pair {
+  border-top: 1px dashed #dccfc9;
+}
+.flight-pair-no {
+  color: var(--ink);
+  text-align: right;
+  font-size: 12px;
+  letter-spacing: .01em;
+}
+.flight-pair-time {
+  padding-left: 9px;
+  border-left: 1px solid #eaded9;
+  color: var(--ink);
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+@media (max-width: 640px) {
+  .flight-time-cell { min-width: 195px; }
+  .flight-time-pairs { min-width: 182px; }
+  .flight-time-pair {
+    grid-template-columns: 62px minmax(108px, 1fr);
+    gap: 6px;
+    min-height: 25px;
+    padding: 3px 2px;
+  }
+  .flight-pair-no,
+  .flight-pair-time { font-size: 11px; }
+  .flight-pair-time { padding-left: 7px; }
+}
+

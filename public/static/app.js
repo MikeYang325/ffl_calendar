@@ -673,7 +673,7 @@ async function loadOverview() {
   if (overviewAbortController) overviewAbortController.abort();
   const controller = new AbortController();
   overviewAbortController = controller;
-  $('routesTableBody').innerHTML = '<tr><td colspan="7">正在加载…</td></tr>';
+  $('routesTableBody').innerHTML = '<tr><td colspan="6">正在加载…</td></tr>';
 
   let r;
   try {
@@ -688,9 +688,22 @@ async function loadOverview() {
   $('routeCount').textContent = `${data.count} 条`;
 
   $('routesTableBody').innerHTML = data.routes.length ? data.routes.map((x, idx) => {
-    const times = x.times.map(t =>
-      `${t.departure_time} → ${t.arrival_time}${t.cross_day ? ' +' + t.cross_day : ''}`
-    ).join('<br>');
+    const scheduleRows = (x.schedule_rows || []).length
+      ? x.schedule_rows
+      : (x.flight_nos || []).map((flightNo, rowIndex) => ({
+          flight_no: flightNo,
+          departure_time: x.times?.[rowIndex]?.departure_time || '',
+          arrival_time: x.times?.[rowIndex]?.arrival_time || '',
+          cross_day: x.times?.[rowIndex]?.cross_day || 0,
+        }));
+    const flightTimeHtml = `
+      <div class="flight-time-pairs">
+        ${scheduleRows.map(row => `
+          <div class="flight-time-pair">
+            <strong class="flight-pair-no">${esc(row.flight_no)}</strong>
+            <span class="flight-pair-time">${esc(row.departure_time)} → ${esc(row.arrival_time)}${row.cross_day ? ' +' + row.cross_day : ''}</span>
+          </div>`).join('')}
+      </div>`;
 
     const dateId = `route-dates-${idx}`;
     const airportText = x.aggregate
@@ -701,8 +714,7 @@ async function loadOverview() {
       <tr class="route-main-row">
         <td class="dest"><div class="dest-title-line"><strong>${esc(x.destination_name)}</strong><span class="route-flight-count">${(x.flight_nos || []).length} 班</span></div><div class="sub">${esc(x.airlines.join(' / '))}</div></td>
         <td>${airportText}</td>
-        <td>${x.flight_nos.map(esc).join('<br>')}</td>
-        <td class="mono">${times}</td>
+        <td class="flight-time-cell mono">${flightTimeHtml}</td>
         <td><strong>${esc(x.schedule)}</strong></td>
         <td>
           <div class="route-days-line"><strong>${x.operating_days} 天</strong><button type="button" class="date-toggle-btn" data-target="${dateId}" data-route-index="${idx}" aria-expanded="false" title="展开具体日期">▶</button></div>
@@ -711,9 +723,9 @@ async function loadOverview() {
         <td>${x.products.map(p => `<span class="tag product">${esc(p)}</span>`).join(' ')}</td>
       </tr>
       <tr class="route-date-row hidden" id="${dateId}">
-        <td colspan="7">${routeCalendarHtml(x)}</td>
+        <td colspan="6">${routeCalendarHtml(x)}</td>
       </tr>`;
-  }).join('') : '<tr><td colspan="7">没有匹配航线</td></tr>';
+  }).join('') : '<tr><td colspan="6">没有匹配航线</td></tr>';
 
   $('routesTableBody').querySelectorAll('.date-toggle-btn').forEach(btn => {
     btn.addEventListener('click', () => {
