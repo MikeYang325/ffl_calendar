@@ -753,3 +753,30 @@ body { background:linear-gradient(180deg,#f3eee9 0,#f7f4f1 55%,#f3eee9 100%); }
   outline: none;
 }
 
+/* inline route date triangle */
+.route-days-line {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:4px;
+  line-height:1.2;
+}
+.route-days-line .date-toggle-btn {
+  width:18px;
+  height:18px;
+  margin:0;
+  padding:0;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border:0;
+  background:transparent;
+  color:var(--primary);
+  font-size:10px;
+  line-height:1;
+  vertical-align:middle;
+}
+.route-days-line .date-toggle-btn:hover {
+  background:var(--soft);
+  border-radius:4px;
+}

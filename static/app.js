@@ -626,9 +626,8 @@ async function loadOverview() {
         <td class="mono">${times}</td>
         <td><strong>${esc(x.schedule)}</strong></td>
         <td>
-          <strong>${x.operating_days} 天</strong>
+          <div class="route-days-line"><strong>${x.operating_days} 天</strong><button type="button" class="date-toggle-btn" data-target="${dateId}" aria-expanded="false" title="展开具体日期">▶</button></div>
           <div class="sub">${esc(x.first_date)} ~ ${esc(x.last_date)}</div>
-          <button type="button" class="date-toggle-btn" data-target="${dateId}" aria-expanded="false" title="展开具体日期">▶</button>
         </td>
         <td>${x.products.map(p => `<span class="tag product">${esc(p)}</span>`).join(' ')}</td>
       </tr>
