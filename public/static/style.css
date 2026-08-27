@@ -700,3 +700,26 @@ body { background:linear-gradient(180deg,#f3eee9 0,#f7f4f1 55%,#f3eee9 100%); }
   .table-card { margin-top:10px; }
 }
 
+/* route overview table centered presentation */
+.routes-table th,
+.routes-table td {
+  text-align: center;
+}
+.routes-table .dest .dest-title-line {
+  justify-content: center;
+}
+.routes-table .dest .sub,
+.routes-table .sub {
+  text-align: center;
+}
+.routes-table td .date-detail-btn {
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+.routes-table td .tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
