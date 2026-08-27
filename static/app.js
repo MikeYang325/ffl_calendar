@@ -454,7 +454,11 @@ async function searchFlights() {
 
   try {
     const data = await doSearch(origin, destination, date);
-    $('resultTitle').textContent = `${META.airports.find(x=>x.code===origin)?.name || origin} → ${META.airports.find(x=>x.code===destination)?.name || destination}`;
+    const originName = META.airports.find(x=>x.code===origin)?.name || origin;
+    const destinationName = META.airports.find(x=>x.code===destination)?.name || destination;
+    $('resultTitle').textContent = tripMode === 'roundtrip'
+      ? `去程 · ${originName} → ${destinationName}`
+      : `${originName} → ${destinationName}`;
     $('resultSubtitle').textContent = `${date} · 共 ${data.count} 个方案`;
     $('results').className = 'results-list';
     $('results').innerHTML = data.count ? data.results.map(flightCard).join('') : '<div class="empty-state">没有找到符合条件的航班</div>';
@@ -464,6 +468,7 @@ async function searchFlights() {
       if (!returnDate) throw new Error('请选择返程日期');
       const rd = await doSearch(destination, origin, returnDate);
       $('returnResultsWrap').classList.remove('hidden');
+      $('returnTitle').textContent = `返程 · ${destinationName} → ${originName}`;
       $('returnSubtitle').textContent = `${returnDate} · 共 ${rd.count} 个方案`;
       $('returnResults').innerHTML = rd.count ? rd.results.map(flightCard).join('') : '<div class="empty-state">没有找到符合条件的返程航班</div>';
     }
