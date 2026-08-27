@@ -84,7 +84,7 @@ text = path.read_text(encoding="utf-8")
 text = replace_once(
     text,
     '    def routes_from(self, origin, membership="all", airline="", query="", weekday=""):',
-    '    def routes_from(self, origin, membership="all", airline="", query="", weekday="", departure_period=""): ',
+    '    def routes_from(self, origin, membership="all", airline="", query="", weekday="", departure_period=""):',
     'app.py: routes_from signature',
 )
 
@@ -134,8 +134,8 @@ anchor = '''    def test_route_weekday_filter(self):'''
 if anchor not in test:
     raise SystemExit('tests: route weekday anchor not found')
 new_test = '''    def test_route_departure_period_filter(self):
-        morning = self.store.routes_from("PEK", membership="666", departure_period="morning")
-        evening = self.store.routes_from("PEK", membership="666", departure_period="evening")
+        morning = app.STORE.routes_from("PEK", membership="666", departure_period="morning")
+        evening = app.STORE.routes_from("PEK", membership="666", departure_period="evening")
         self.assertTrue(morning)
         self.assertTrue(evening)
         self.assertTrue(all(t["departure_time"] < "08:00" for row in morning for t in row["times"]))
