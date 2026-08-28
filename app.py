@@ -78,9 +78,10 @@ def airline_code(flight_no):
 
 
 def product_for_departure(departure_time):
-    # 用户规则：666=08:00前或20:00后；2666=全天。
+    # 666 是基础适用版本；2666 是父级版本，继承 666 并额外覆盖全天。
+    # 产品标签表示“最低适用版本”，因此不再使用 666/2666 这种并列写法。
     if departure_time and (departure_time < "08:00" or departure_time > "20:00"):
-        return "666/2666"
+        return "666"
     return "2666"
 
 
@@ -218,6 +219,7 @@ class FlightStore:
         self.by_date_origin = defaultdict(list)
         self.by_origin_sorted = defaultdict(list)
         self.by_origin_times = defaultdict(list)
+        self.by_destination_sorted = defaultdict(list)
         self.airports = {}
         self.airlines = {}
         self.city_airports = {}
@@ -296,6 +298,7 @@ class FlightStore:
         for flight in self.flights:
             self.by_date_origin[(flight["departure_date"], flight["origin"])].append(flight)
             self.by_origin_sorted[flight["origin"]].append(flight)
+            self.by_destination_sorted[flight["destination"]].append(flight)
 
         for origin, flights in self.by_origin_sorted.items():
             flights.sort(key=lambda x: x["departure_dt"])
@@ -454,7 +457,7 @@ class FlightStore:
                 "segments": segments, "stops": len(segments) - 1,
                 "total_minutes": total, "total_text": minutes_text(total),
                 "departure_dt": segments[0]["departure_dt"], "arrival_dt": segments[-1]["arrival_dt"],
-                "product": "666/2666" if all(s["product"] == "666/2666" for s in segments) else "2666",
+                "product": "666" if all(s["product"] == "666" for s in segments) else "2666",
             })
 
         for first in first_legs:
@@ -510,10 +513,60 @@ class FlightStore:
         return items
 
     def routes_from(self, origin, membership="all", airline="", query="", weekday="", departure_period=""):
-        origin_codes, origin_name, aggregate_mode = self.resolve_origins(origin)
-        if not origin_codes:
+        return self._routes_by_location(
+            origin, direction="departure", membership=membership, airline=airline,
+            query=query, weekday=weekday, departure_period=departure_period,
+        )
+
+    def routes_to(self, destination, membership="all", airline="", query="", weekday="", departure_period=""):
+        return self._routes_by_location(
+            destination, direction="arrival", membership=membership, airline=airline,
+            query=query, weekday=weekday, departure_period=departure_period,
+        )
+
+    def routes_overview(self, location, direction="departure", membership="all", airline="", query="",
+                        weekday="", departure_period=""):
+        direction = str(direction or "departure").strip().lower()
+        if direction not in {"departure", "arrival", "roundtrip"}:
+            direction = "departure"
+
+        kwargs = dict(
+            membership=membership, airline=airline, query=query,
+            weekday=weekday, departure_period=departure_period,
+        )
+        if direction == "departure":
+            return self.routes_from(location, **kwargs)
+        if direction == "arrival":
+            return self.routes_to(location, **kwargs)
+
+        outbound = self.routes_from(location, **kwargs)
+        inbound = self.routes_to(location, **kwargs)
+        out_by_key = {row["_counterpart_key"]: row for row in outbound}
+        in_by_key = {row["_counterpart_key"]: row for row in inbound}
+        rows = []
+        for key in sorted(set(out_by_key) & set(in_by_key)):
+            out = out_by_key[key]
+            back = in_by_key[key]
+            rows.append({
+                "direction": "roundtrip",
+                "_counterpart_key": key,
+                "counterpart_name": out["counterpart_name"],
+                "counterpart_codes": sorted(set(out["counterpart_codes"]) | set(back["counterpart_codes"])),
+                "aggregate": bool(out.get("aggregate") or back.get("aggregate")),
+                "products": [membership] if membership in {"666", "2666"} else sorted(set(out["products"] + back["products"])),
+                "outbound": out,
+                "inbound": back,
+            })
+        rows.sort(key=lambda x: (x["counterpart_name"], "/".join(x["counterpart_codes"])))
+        return rows
+
+    def _routes_by_location(self, location, direction="departure", membership="all", airline="", query="",
+                            weekday="", departure_period=""):
+        selected_codes, selected_name, aggregate_mode = self.resolve_origins(location)
+        if not selected_codes:
             return []
 
+        direction = "arrival" if direction == "arrival" else "departure"
         q = (query or "").strip().lower()
         try:
             weekday_value = int(str(weekday).strip()) if str(weekday).strip() else None
@@ -535,6 +588,7 @@ class FlightStore:
             "origins": set(),
             "destinations": set(),
             "airport_pairs": set(),
+            "counterpart_codes": set(),
             "b_candidate_dates": set(),
             "b_visible_dates": set(),
             "running_only_dates": set(),
@@ -542,8 +596,13 @@ class FlightStore:
             "date_flights": defaultdict(set),
         })
 
-        for origin_code in origin_codes:
-            for f in self.by_origin_sorted.get(origin_code, []):
+        for selected_code in selected_codes:
+            source = (
+                self.by_origin_sorted.get(selected_code, [])
+                if direction == "departure"
+                else self.by_destination_sorted.get(selected_code, [])
+            )
+            for f in source:
                 if weekday_value and f["departure_dt"].weekday() + 1 != weekday_value:
                     continue
                 if departure_period == "morning" and f["departure_time"] >= "08:00":
@@ -555,26 +614,28 @@ class FlightStore:
                 if airline and f["airline_code"] != airline:
                     continue
 
-                destination_city = self.city_by_airport.get(f["destination"])
+                counterpart_code = f["destination"] if direction == "departure" else f["origin"]
+                counterpart_name_raw = f["destination_name"] if direction == "departure" else f["origin_name"]
+                counterpart_city = self.city_by_airport.get(counterpart_code)
                 if q:
                     haystack = " ".join([
-                        f["destination"], f["destination_name"], destination_city or "",
+                        counterpart_code, counterpart_name_raw, counterpart_city or "",
                         f["flight_no"], f["airline"], f["airline_code"],
                     ]).lower()
                     if q not in haystack:
                         continue
 
-                if aggregate_mode and destination_city:
-                    group_key = f"CITY:{destination_city}"
-                    destination_name = destination_city
+                if aggregate_mode and counterpart_city:
+                    group_key = f"CITY:{counterpart_city}"
+                    counterpart_name = counterpart_city
                 else:
-                    group_key = f["destination"]
-                    destination_name = f["destination_name"]
+                    group_key = counterpart_code
+                    counterpart_name = counterpart_name_raw
 
                 g = groups[group_key]
-                g["destination_name"] = destination_name
+                g["counterpart_name"] = counterpart_name
+                g["counterpart_codes"].add(counterpart_code)
                 g["weekdays"].add(f["departure_dt"].weekday() + 1)
-                # 航班号/主时刻仍来自完整计划快照；有票日期单独按业务规则计算。
                 g["flight_records"].append(f)
                 g["airlines"].add(f["airline"])
                 g["products"].add(f["product"])
@@ -610,7 +671,6 @@ class FlightStore:
         out = []
         for group_key, g in groups.items():
             operating_dates = sorted(g["dates"])
-            # 当前筛选下全落在无票期的航线，不应该出现在“可用航线”列表。
             if not operating_dates:
                 continue
             candidate_dates = sorted(g["b_candidate_dates"])
@@ -620,15 +680,22 @@ class FlightStore:
             schedule_rows = representative_schedule_rows(g["flight_records"], tolerance_minutes=30)
             destination_codes = sorted(g["destinations"])
             route_origin_codes = sorted(g["origins"])
-            destination = "/".join(destination_codes)
+            counterpart_codes = sorted(g["counterpart_codes"])
 
+            products = [membership] if membership in {"666", "2666"} else sorted(g["products"])
             out.append({
+                "direction": direction,
+                "_counterpart_key": group_key,
+                "counterpart_name": g["counterpart_name"],
+                "counterpart_codes": counterpart_codes,
+                "selected_name": selected_name,
+                "selected_codes": list(selected_codes),
                 "origin": "/".join(route_origin_codes),
-                "origin_name": origin_name,
+                "origin_name": selected_name if direction == "departure" else g["counterpart_name"],
                 "origin_codes": route_origin_codes,
-                "destination": destination,
+                "destination": "/".join(destination_codes),
                 "destination_codes": destination_codes,
-                "destination_name": g["destination_name"],
+                "destination_name": g["counterpart_name"] if direction == "departure" else selected_name,
                 "aggregate": bool(aggregate_mode),
                 "airport_pairs": [
                     {"origin": a, "destination": b}
@@ -649,7 +716,7 @@ class FlightStore:
                     for row in schedule_rows
                 ],
                 "airlines": sorted(g["airlines"]),
-                "products": sorted(g["products"]),
+                "products": products,
                 "flight_records_count": len(g["flight_records"]),
                 "operating_days": len(operating_dates),
                 "operating_dates": operating_dates,
@@ -661,14 +728,14 @@ class FlightStore:
                     date: sorted(flights)
                     for date, flights in sorted(g["date_flights"].items())
                 },
-                "first_date": operating_dates[0] if operating_dates else "",
-                "last_date": operating_dates[-1] if operating_dates else "",
+                "first_date": operating_dates[0],
+                "last_date": operating_dates[-1],
                 "data_start": self.date_min,
                 "data_end": self.date_max,
                 "weekday_filter": weekday_value or 0,
             })
 
-        out.sort(key=lambda x: (x["destination_name"], x["destination"]))
+        out.sort(key=lambda x: (x["counterpart_name"], "/".join(x["counterpart_codes"])))
         return out
 
 
@@ -736,23 +803,29 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/meta":
             return self.send_json(STORE.meta())
         if path == "/api/routes":
-            origin = one(qs, "origin").strip()
-            if not origin:
-                return self.send_json({"error": "origin 为必填项"}, 400)
-            origin_codes, origin_name, aggregate = STORE.resolve_origins(origin)
-            if not origin_codes:
+            location = one(qs, "location", one(qs, "origin")).strip()
+            if not location:
+                return self.send_json({"error": "location 为必填项"}, 400)
+            selected_codes, selected_name, aggregate = STORE.resolve_origins(location)
+            if not selected_codes:
                 return self.send_json({"error": "没有找到这个城市或机场"}, 400)
-            rows = STORE.routes_from(
-                origin,
-                membership=one(qs, "membership", "all"),
+            direction = one(qs, "direction", "departure").strip().lower()
+            if direction not in {"departure", "arrival", "roundtrip"}:
+                direction = "departure"
+            membership = one(qs, "membership", "666").strip()
+            if membership not in {"666", "2666"}:
+                membership = "666"
+            rows = STORE.routes_overview(
+                location, direction=direction, membership=membership,
                 airline=one(qs, "airline").strip().upper(),
                 query=one(qs, "q"),
                 weekday=one(qs, "weekday"),
                 departure_period=one(qs, "departure_period"),
             )
             return self.send_json({
-                "origin": origin, "origin_name": origin_name, "origin_codes": origin_codes,
-                "aggregate": aggregate, "count": len(rows), "routes": rows
+                "location": location, "selected_name": selected_name, "selected_codes": selected_codes,
+                "direction": direction, "membership": membership, "aggregate": aggregate,
+                "count": len(rows), "routes": rows
             })
         if path == "/api/search":
             origin = one(qs, "origin").strip().upper()

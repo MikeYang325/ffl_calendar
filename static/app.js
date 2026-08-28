@@ -377,6 +377,7 @@ async function init() {
   const plus7 = new Date(`${META.date_min}T00:00:00`); plus7.setDate(plus7.getDate()+7);
   $('returnDate').value = plus7.toISOString().slice(0,10) <= META.date_max ? plus7.toISOString().slice(0,10) : META.date_max;
   setDefaultAirports();
+  updateOverviewDirectionUi();
   prewarmAirportPickers();
   renderStats();
   loadOverview();
@@ -510,6 +511,13 @@ function groupedDateText(dates) {
 }
 
 function routeCalendarHtml(route) {
+  if (route?.direction === 'roundtrip' && route.outbound && route.inbound) {
+    return `
+      <div class="roundtrip-calendar-wrap">
+        <section class="roundtrip-calendar-side"><h4>去程</h4>${routeCalendarHtml(route.outbound)}</section>
+        <section class="roundtrip-calendar-side"><h4>返程</h4>${routeCalendarHtml(route.inbound)}</section>
+      </div>`;
+  }
   const startText = route.data_start || META.date_min;
   const endText = route.data_end || META.date_max;
   const operating = new Set(route.operating_dates || []);
@@ -651,11 +659,14 @@ function openMobileRouteCalendarSheet(route, button) {
   button.textContent = '▼';
   button.setAttribute('aria-expanded', 'true');
 
-  const airportText = route.aggregate
-    ? `${(route.origin_codes || []).join('/')} → ${(route.destination_codes || []).join('/')}`
-    : `${route.origin || ''} → ${(route.destination_codes || [route.destination]).join('/')}`;
-  overlay.querySelector('.mobile-route-calendar-subtitle').textContent =
-    `${route.destination_name} · ${route.operating_days}天${airportText.trim() ? ` · ${airportText}` : ''}`;
+  if (route.direction === 'roundtrip' && route.outbound && route.inbound) {
+    overlay.querySelector('.mobile-route-calendar-subtitle').textContent =
+      `${route.counterpart_name} · 去${route.outbound.operating_days}天 / 返${route.inbound.operating_days}天`;
+  } else {
+    const airportText = `${(route.origin_codes || []).join('/')} → ${(route.destination_codes || []).join('/')}`;
+    overlay.querySelector('.mobile-route-calendar-subtitle').textContent =
+      `${route.counterpart_name || route.destination_name} · ${route.operating_days}天${airportText.trim() ? ` · ${airportText}` : ''}`;
+  }
   overlay.querySelector('.mobile-route-calendar-scroll').innerHTML = routeCalendarHtml(route);
 
   overlay.hidden = false;
@@ -664,11 +675,50 @@ function openMobileRouteCalendarSheet(route, button) {
 }
 
 
+function updateOverviewDirectionUi() {
+  const direction = $('overviewDirection')?.value || 'departure';
+  const label = $('overviewLocationLabel');
+  const header = $('routeCounterpartHeader');
+  const picker = AIRPORT_PICKERS.overviewOriginSelect;
+  if (direction === 'arrival') {
+    if (label) label.textContent = '到达城市 / 机场';
+    if (header) header.textContent = '出发城市';
+    if (picker) picker.input.placeholder = '输入到达城市 / 机场 / 三字码';
+  } else if (direction === 'roundtrip') {
+    if (label) label.textContent = '城市 / 机场';
+    if (header) header.textContent = '往返城市';
+    if (picker) picker.input.placeholder = '输入城市 / 机场 / 三字码';
+  } else {
+    if (label) label.textContent = '出发城市 / 机场';
+    if (header) header.textContent = '到达城市';
+    if (picker) picker.input.placeholder = '输入出发城市 / 机场 / 三字码';
+  }
+}
+
+function routeFlightTimePairs(route) {
+  const rows = (route.schedule_rows || []).length
+    ? route.schedule_rows
+    : (route.flight_nos || []).map((flightNo, rowIndex) => ({
+        flight_no: flightNo,
+        departure_time: route.times?.[rowIndex]?.departure_time || '',
+        arrival_time: route.times?.[rowIndex]?.arrival_time || '',
+        cross_day: route.times?.[rowIndex]?.cross_day || 0,
+      }));
+  return `<div class="flight-time-pairs">${rows.map(row => `
+    <div class="flight-time-pair">
+      <strong class="flight-pair-no">${esc(row.flight_no)}</strong>
+      <span class="flight-pair-time">${esc(row.departure_time)} → ${esc(row.arrival_time)}${row.cross_day ? ' +' + row.cross_day : ''}</span>
+    </div>`).join('')}</div>`;
+}
+
 async function loadOverview() {
-  const origin = $('overviewOriginSelect').value.trim() || $('originSelect').value;
-  if (!origin) return;
+  const location = $('overviewOriginSelect').value.trim() || $('originSelect').value;
+  if (!location) return;
+  const direction = $('overviewDirection').value || 'departure';
+  updateOverviewDirectionUi();
   const p = new URLSearchParams({
-    origin,
+    location,
+    direction,
     membership: $('overviewMembership').value,
     weekday: $('overviewWeekday').value,
     departure_period: $('overviewDeparturePeriod').value,
@@ -690,42 +740,55 @@ async function loadOverview() {
   if (overviewAbortController !== controller) return;
   overviewAbortController = null;
   const data = await r.json();
+  if (!r.ok) {
+    $('routesTableBody').innerHTML = `<tr><td colspan="6">${esc(data.error || '查询失败')}</td></tr>`;
+    return;
+  }
   $('routeCount').textContent = `${data.count} 条`;
 
   $('routesTableBody').innerHTML = data.routes.length ? data.routes.map((x, idx) => {
-    const scheduleRows = (x.schedule_rows || []).length
-      ? x.schedule_rows
-      : (x.flight_nos || []).map((flightNo, rowIndex) => ({
-          flight_no: flightNo,
-          departure_time: x.times?.[rowIndex]?.departure_time || '',
-          arrival_time: x.times?.[rowIndex]?.arrival_time || '',
-          cross_day: x.times?.[rowIndex]?.cross_day || 0,
-        }));
-    const flightTimeHtml = `
-      <div class="flight-time-pairs">
-        ${scheduleRows.map(row => `
-          <div class="flight-time-pair">
-            <strong class="flight-pair-no">${esc(row.flight_no)}</strong>
-            <span class="flight-pair-time">${esc(row.departure_time)} → ${esc(row.arrival_time)}${row.cross_day ? ' +' + row.cross_day : ''}</span>
-          </div>`).join('')}
-      </div>`;
-
     const dateId = `route-dates-${idx}`;
-    const airportText = x.aggregate
-      ? `${(x.origin_codes || []).map(esc).join('/')} → ${(x.destination_codes || []).map(esc).join('/')}`
-      : (x.destination_codes || [x.destination]).map(esc).join('/');
+    const isRoundtrip = x.direction === 'roundtrip';
+    const counterpartName = x.counterpart_name || x.destination_name || x.origin_name;
+
+    let airportText, flightTimeHtml, scheduleHtml, dateHtml, flightCountText, airlines, products;
+    if (isRoundtrip) {
+      const out = x.outbound;
+      const back = x.inbound;
+      airportText = `${(out.origin_codes || []).map(esc).join('/')} ⇄ ${(out.destination_codes || []).map(esc).join('/')}`;
+      flightTimeHtml = `
+        <div class="roundtrip-flight-times">
+          <div class="roundtrip-direction-line"><span class="route-dir-badge">去</span>${routeFlightTimePairs(out)}</div>
+          <div class="roundtrip-direction-line"><span class="route-dir-badge">返</span>${routeFlightTimePairs(back)}</div>
+        </div>`;
+      scheduleHtml = `<div class="roundtrip-schedule"><span><b>去</b> ${esc(out.schedule)}</span><span><b>返</b> ${esc(back.schedule)}</span></div>`;
+      dateHtml = `
+        <div class="route-days-line"><strong>去${out.operating_days} / 返${back.operating_days} 天</strong><button type="button" class="date-toggle-btn" data-target="${dateId}" data-route-index="${idx}" aria-expanded="false" title="展开具体日期">▶</button></div>
+        <div class="sub">去 ${esc(out.first_date)} ~ ${esc(out.last_date)}</div>
+        <div class="sub">返 ${esc(back.first_date)} ~ ${esc(back.last_date)}</div>`;
+      flightCountText = `去${(out.flight_nos || []).length} / 返${(back.flight_nos || []).length}`;
+      airlines = [...new Set([...(out.airlines || []), ...(back.airlines || [])])];
+      products = x.products || [];
+    } else {
+      airportText = `${(x.origin_codes || []).map(esc).join('/')} → ${(x.destination_codes || []).map(esc).join('/')}`;
+      flightTimeHtml = routeFlightTimePairs(x);
+      scheduleHtml = `<strong>${esc(x.schedule)}</strong>`;
+      dateHtml = `
+        <div class="route-days-line"><strong>${x.operating_days} 天</strong><button type="button" class="date-toggle-btn" data-target="${dateId}" data-route-index="${idx}" aria-expanded="false" title="展开具体日期">▶</button></div>
+        <div class="sub">${esc(x.first_date)} ~ ${esc(x.last_date)}</div>`;
+      flightCountText = `${(x.flight_nos || []).length} 班`;
+      airlines = x.airlines || [];
+      products = x.products || [];
+    }
 
     return `
       <tr class="route-main-row">
-        <td class="dest"><div class="dest-title-line"><strong>${esc(x.destination_name)}</strong><span class="route-flight-count">${(x.flight_nos || []).length} 班</span></div><div class="sub">${esc(x.airlines.join(' / '))}</div></td>
+        <td class="dest"><div class="dest-title-line"><strong>${esc(counterpartName)}</strong><span class="route-flight-count">${esc(flightCountText)}</span></div><div class="sub">${airlines.map(esc).join(' / ')}</div></td>
         <td>${airportText}</td>
         <td class="flight-time-cell mono">${flightTimeHtml}</td>
-        <td><strong>${esc(x.schedule)}</strong></td>
-        <td>
-          <div class="route-days-line"><strong>${x.operating_days} 天</strong><button type="button" class="date-toggle-btn" data-target="${dateId}" data-route-index="${idx}" aria-expanded="false" title="展开具体日期">▶</button></div>
-          <div class="sub">${esc(x.first_date)} ~ ${esc(x.last_date)}</div>
-        </td>
-        <td>${x.products.map(p => `<span class="tag product">${esc(p)}</span>`).join(' ')}</td>
+        <td>${scheduleHtml}</td>
+        <td>${dateHtml}</td>
+        <td>${products.map(p => `<span class="tag product">${esc(p)}</span>`).join(' ')}</td>
       </tr>
       <tr class="route-date-row hidden" id="${dateId}">
         <td colspan="6">${routeCalendarHtml(x)}</td>
@@ -749,6 +812,7 @@ async function loadOverview() {
     });
   });
 }
+
 
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -777,6 +841,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   $('searchBtn').addEventListener('click', searchFlights);
   $('overviewBtn').addEventListener('click', loadOverview);
+  $('overviewDirection').addEventListener('change', () => { updateOverviewDirectionUi(); loadOverview(); });
   $('overviewOriginSelect').addEventListener('change', loadOverview);
   $('overviewMembership').addEventListener('change', loadOverview);
   $('overviewWeekday').addEventListener('change', loadOverview);

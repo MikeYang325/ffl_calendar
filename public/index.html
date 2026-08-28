@@ -20,11 +20,11 @@
 
     <main class="container">
       <nav class="main-tabs">
-        <button class="tab active" data-tab="searchPanel">航班搜索</button>
-        <button class="tab" data-tab="routesPanel">航线总览</button>
+        <button class="tab active" data-tab="routesPanel">航线总览</button>
+        <button class="tab" data-tab="searchPanel">航班搜索</button>
       </nav>
 
-      <section id="searchPanel" class="panel active">
+      <section id="searchPanel" class="panel">
         <div class="search-card">
           <div class="segmented" id="tripMode">
             <button class="active" data-mode="oneway">单程</button>
@@ -117,7 +117,7 @@
         </section>
       </section>
 
-      <section id="routesPanel" class="panel">
+      <section id="routesPanel" class="panel active">
         <div class="search-card route-overview-controls">
           <div class="overview-title">
             <div>
@@ -127,14 +127,22 @@
           </div>
           <div class="search-grid overview-filter-grid">
             <label class="field">
-              <span>出发城市 / 机场</span>
+              <span>查询方向</span>
+              <select id="overviewDirection">
+                <option value="departure" selected>出发地</option>
+                <option value="arrival">到达地</option>
+                <option value="roundtrip">往返</option>
+              </select>
+            </label>
+            <label class="field">
+              <span id="overviewLocationLabel">出发城市 / 机场</span>
               <select id="overviewOriginSelect"></select>
             </label>
             <label class="field">
               <span>会员版本</span>
               <select id="overviewMembership">
                 <option value="666" selected>666</option>
-                <option value="all">666/2666</option>
+                <option value="2666">2666</option>
               </select>
             </label>
             <label class="field">
@@ -173,7 +181,7 @@
           <table class="routes-table">
             <thead>
               <tr>
-                <th>到达城市</th><th>机场</th><th>航班 / 时刻</th><th>班期</th><th>实际运行日期</th><th>产品</th>
+                <th id="routeCounterpartHeader">到达城市</th><th>机场</th><th>航班 / 时刻</th><th>班期</th><th>实际运行日期</th><th>产品</th>
               </tr>
             </thead>
             <tbody id="routesTableBody"></tbody>

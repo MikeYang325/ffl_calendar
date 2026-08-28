@@ -16,10 +16,10 @@ class StoreTest(unittest.TestCase):
         self.assertGreaterEqual(len(results), 1)
 
     def test_666_rule(self):
-        self.assertEqual(app.product_for_departure('07:59'), '666/2666')
+        self.assertEqual(app.product_for_departure('07:59'), '666')
         self.assertEqual(app.product_for_departure('08:00'), '2666')
         self.assertEqual(app.product_for_departure('20:00'), '2666')
-        self.assertEqual(app.product_for_departure('20:01'), '666/2666')
+        self.assertEqual(app.product_for_departure('20:01'), '666')
 
 if __name__ == '__main__':
     unittest.main()

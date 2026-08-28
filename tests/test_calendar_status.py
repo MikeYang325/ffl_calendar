@@ -91,5 +91,34 @@ class CalendarStatusTest(unittest.TestCase):
         self.assertEqual([x["observations"] for x in route["times"]], [54, 54, 54, 54])
 
 
+    def test_membership_hierarchy_labels(self):
+        self.assertEqual(app.product_for_departure("06:55"), "666")
+        self.assertEqual(app.product_for_departure("21:00"), "666")
+        self.assertEqual(app.product_for_departure("12:00"), "2666")
+        rows_666 = app.STORE.routes_from("PEK", membership="666")
+        rows_2666 = app.STORE.routes_from("PEK", membership="2666")
+        self.assertTrue(rows_666)
+        self.assertTrue(rows_2666)
+        self.assertTrue(all(row["products"] == ["666"] for row in rows_666))
+        self.assertTrue(all(row["products"] == ["2666"] for row in rows_2666))
+
+    def test_arrival_overview(self):
+        rows = app.STORE.routes_overview("PEK", direction="arrival", membership="666")
+        self.assertTrue(rows)
+        self.assertTrue(all(row["direction"] == "arrival" for row in rows))
+        self.assertTrue(all("PEK" in row["destination_codes"] for row in rows))
+
+    def test_roundtrip_overview_requires_both_directions(self):
+        rows = app.STORE.routes_overview("PEK", direction="roundtrip", membership="666")
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertEqual(row["direction"], "roundtrip")
+            self.assertIn("outbound", row)
+            self.assertIn("inbound", row)
+            self.assertIn("PEK", row["outbound"]["origin_codes"])
+            self.assertIn("PEK", row["inbound"]["destination_codes"])
+            self.assertEqual(row["products"], ["666"])
+
+
 if __name__ == "__main__":
     unittest.main()
