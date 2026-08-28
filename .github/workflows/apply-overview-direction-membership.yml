@@ -1,0 +1,47 @@
+name: Apply overview direction and membership patch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/apply_overview_direction_membership.py'
+      - '.github/workflows/apply-overview-direction-membership.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Apply patch
+        run: python scripts/apply_overview_direction_membership.py
+      - name: Validate JavaScript
+        run: node --check static/app.js && node --check public/static/app.js
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+      - name: Smoke overview modes
+        run: |
+          python - <<'PY'
+          import app
+          for direction in ('departure','arrival','roundtrip'):
+              rows = app.STORE.routes_overview('北京', direction=direction, membership='666')
+              assert rows, direction
+          assert all(r['products'] == ['2666'] for r in app.STORE.routes_overview('北京', membership='2666'))
+          print('overview smoke ok')
+          PY
+      - name: Commit release
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app.py templates/index.html public/index.html static/app.js public/static/app.js static/style.css public/static/style.css tests/test_calendar_status.py
+          git commit -m "Add route overview direction modes and membership hierarchy"
+          git rm scripts/apply_overview_direction_membership.py .github/workflows/apply-overview-direction-membership.yml
+          git commit -m "Remove temporary overview patch files"
+          git push
