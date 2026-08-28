@@ -22,6 +22,24 @@ jobs:
           python-version: '3.12'
       - name: Apply patch
         run: python scripts/apply_overview_direction_membership.py
+      - name: Preserve internal compatibility and update hierarchy tests
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('app.py')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace('def routes_from(self, origin, membership="666",', 'def routes_from(self, origin, membership="all",', 1)
+          s = s.replace('def routes_to(self, destination, membership="666",', 'def routes_to(self, destination, membership="all",', 1)
+          s = s.replace('def routes_overview(self, location, direction="departure", membership="666",', 'def routes_overview(self, location, direction="departure", membership="all",', 1)
+          s = s.replace('def _routes_by_location(self, location, direction="departure", membership="666",', 'def _routes_by_location(self, location, direction="departure", membership="all",', 1)
+          p.write_text(s, encoding='utf-8')
+
+          p = Path('tests/test_app.py')
+          s = p.read_text(encoding='utf-8')
+          s = s.replace("self.assertEqual(app.product_for_departure('07:59'), '666/2666')", "self.assertEqual(app.product_for_departure('07:59'), '666')")
+          s = s.replace("self.assertEqual(app.product_for_departure('20:01'), '666/2666')", "self.assertEqual(app.product_for_departure('20:01'), '666')")
+          p.write_text(s, encoding='utf-8')
+          PY
       - name: Validate JavaScript
         run: node --check static/app.js && node --check public/static/app.js
       - name: Run tests
@@ -40,7 +58,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app.py templates/index.html public/index.html static/app.js public/static/app.js static/style.css public/static/style.css tests/test_calendar_status.py
+          git add app.py templates/index.html public/index.html static/app.js public/static/app.js static/style.css public/static/style.css tests/test_app.py tests/test_calendar_status.py
           git commit -m "Add route overview direction modes and membership hierarchy"
           git rm scripts/apply_overview_direction_membership.py .github/workflows/apply-overview-direction-membership.yml
           git commit -m "Remove temporary overview patch files"
