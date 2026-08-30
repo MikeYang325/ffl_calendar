@@ -2,13 +2,14 @@ import json
 import os
 import sqlite3
 import sys
+import urllib.request
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse
 
-FUNCTION_DIR = Path(__file__).resolve().parent
-FUNCTION_ROOT = FUNCTION_DIR.parent
-DB_FILE = FUNCTION_DIR / "data" / "flights.db"
+FUNCTION_ROOT = Path(__file__).resolve().parent.parent
+DB_FILE = Path("/tmp/flights.db")
+DB_URL = "https://calendar.lovefly.club/data/flights.db"
 sys.path.insert(0, str(FUNCTION_ROOT))
 
 AIRLINE_MAP = {
@@ -22,6 +23,23 @@ CITY_AIRPORT_MAP = {
     "重庆": ("CKG", "WSK"), "遵义": ("ZYI", "WMT"), "东京": ("HND", "NRT"),
     "首尔": ("ICN", "GMP"), "大阪": ("KIX", "ITM"), "台北": ("TPE", "TSA"),
 }
+
+
+def ensure_db():
+    if DB_FILE.exists() and DB_FILE.stat().st_size > 1024 * 1024:
+        return
+    tmp = DB_FILE.with_suffix(".download")
+    with urllib.request.urlopen(DB_URL, timeout=60) as response, tmp.open("wb") as out:
+        while True:
+            chunk = response.read(1024 * 1024)
+            if not chunk:
+                break
+            out.write(chunk)
+    with tmp.open("rb") as source:
+        if source.read(16) != b"SQLite format 3\x00":
+            tmp.unlink(missing_ok=True)
+            raise RuntimeError("下载的 flights.db 不是有效 SQLite 文件")
+    tmp.replace(DB_FILE)
 
 
 def pinyin_initial(text):
@@ -50,9 +68,7 @@ def pinyin_initial(text):
 
 
 def load_meta():
-    if not DB_FILE.exists():
-        raise FileNotFoundError(f"找不到数据库：{DB_FILE}")
-
+    ensure_db()
     with sqlite3.connect(DB_FILE) as conn:
         date_min, date_max, flight_records, route_count = conn.execute(
             """
@@ -126,12 +142,17 @@ class handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        if urlparse(self.path).path == "/api/meta":
+        path = urlparse(self.path).path
+        if path == "/api/meta":
             try:
                 return self.send_json(load_meta())
             except Exception as exc:
                 return self.send_json({"error": str(exc)}, 500)
 
-        os.environ["HNA_FLIGHT_DB"] = str(DB_FILE)
-        from app import Handler as AppHandler
-        return AppHandler.do_GET(self)
+        try:
+            ensure_db()
+            os.environ["HNA_FLIGHT_DB"] = str(DB_FILE)
+            from calendar_backend import Handler as AppHandler
+            return AppHandler.do_GET(self)
+        except Exception as exc:
+            return self.send_json({"error": str(exc)}, 500)
