@@ -1,30 +1,130 @@
-name: Inspect calendar database schema
+name: Deploy and self-test calendar repair
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
 jobs:
-  inspect:
-    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Inspect calendar database schema'
+  repair:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Deploy and self-test calendar repair'
     runs-on: ubuntu-latest
+    env:
+      EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
     steps:
-      - name: Inspect deployed SQLite schema
+      - name: Deploy API fix, request HTTPS, and verify live services
         shell: bash
         run: |
           set -euo pipefail
-          curl -fsS --max-time 120 'https://ffl-calendar-new.edgeone.dev/data/flights.db' -o /tmp/flights.db
-          echo '=== FILE ==='
-          ls -lh /tmp/flights.db
-          echo '=== TABLES ==='
-          sqlite3 /tmp/flights.db '.tables'
-          echo '=== TABLE DEFINITIONS ==='
-          sqlite3 /tmp/flights.db "SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name;"
-          echo '=== FLIGHTS COLUMNS ==='
-          sqlite3 /tmp/flights.db 'PRAGMA table_info(flights);'
-          echo '=== ROUTES COLUMNS ==='
-          sqlite3 /tmp/flights.db 'PRAGMA table_info(routes);'
-          echo '=== SAMPLE FLIGHTS ==='
-          sqlite3 -header -column /tmp/flights.db 'SELECT * FROM flights LIMIT 3;'
-          echo '=== SAMPLE ROUTES ==='
-          sqlite3 -header -column /tmp/flights.db 'SELECT * FROM routes LIMIT 3;'
+          API='https://pages-api.edgeone.ai/v1'
+          CAL_PID='makers-fxgtk9g6t5ru'
+          ZONE='zone-3ucp6ukgkx0d'
+          : "${EDGEONE_API_TOKEN:?EDGEONE_API_TOKEN is missing}"
+
+          raw_api() {
+            curl -sS "$API" \
+              -H 'Content-Type: application/json' \
+              -H "Authorization: Bearer ${EDGEONE_API_TOKEN}" \
+              --data-binary "$1"
+          }
+
+          edgeone_ok() {
+            local out
+            out="$(raw_api "$1")"
+            echo "$out" | jq .
+            jq -e '(.Code == 0) and ((.Data.Response.Error? // null) == null)' >/dev/null <<<"$out"
+            printf '%s' "$out"
+          }
+
+          echo '=== DEPLOY NEW CALENDAR PROJECT ==='
+          d="$(edgeone_ok "$(jq -nc --arg pid "$CAL_PID" '{Action:"CreatePagesDeployment",ProjectId:$pid,ViaMeta:"Github",Provider:"Github",Env:"Production",RepoBranch:"main"}')")"
+          did="$(jq -r '.Data.Response.DeploymentId' <<<"$d")"
+          status=Pending
+          for _ in $(seq 1 90); do
+            sleep 4
+            s="$(edgeone_ok "$(jq -nc --arg pid "$CAL_PID" --arg did "$did" '{Action:"DescribePagesDeployments",ProjectId:$pid,DeploymentIds:[$did],Limit:10,Offset:0}')")"
+            status="$(jq -r '.Data.Response.Deployments[0].Status // "Pending"' <<<"$s")"
+            echo "calendar deploy: $status"
+            case "$status" in
+              Success)
+                echo "calendar commit: $(jq -r '.Data.Response.Deployments[0].RepoCommitHash' <<<"$s")"
+                break ;;
+              Failed|Invalid|Timeout|Cancelled) exit 1 ;;
+            esac
+          done
+          [ "$status" = 'Success' ]
+
+          echo '=== PRESET API SELF-TEST ==='
+          curl -fsS --max-time 120 'https://ffl-calendar-new.edgeone.dev/api/meta' -o /tmp/meta.json
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/meta.json'))
+          assert x.get('flight_records', 0) > 0, x
+          assert isinstance(x.get('airports'), list) and len(x['airports']) > 10, x
+          assert isinstance(x.get('airlines'), list) and x['airlines'], x
+          assert all('label' in a for a in x['airlines']), x
+          print('meta ok:', x['flight_records'], 'records,', len(x['airports']), 'airports,', len(x['airlines']), 'airlines')
+          PY
+          curl -fsS --max-time 120 'https://ffl-calendar-new.edgeone.dev/api/routes?location=%E5%8C%97%E4%BA%AC&direction=departure&membership=666' -o /tmp/routes.json
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/routes.json'))
+          assert isinstance(x.get('routes'), list) and x['routes'], x
+          print('routes ok:', len(x['routes']))
+          PY
+
+          echo '=== REQUEST FREE HTTPS FOR BOTH DOMAINS ==='
+          cert="$(raw_api "$(jq -nc --arg zone "$ZONE" '{Action:"ModifyHostsCertificate",ZoneId:$zone,Hosts:["calendar.lovefly.club","ca-miles.lovefly.club"],Mode:"eofreecert"}')")"
+          echo "$cert" | jq .
+          jq -e '(.Code == 0) and ((.Data.Response.Error? // null) == null)' >/dev/null <<<"$cert"
+
+          echo '=== WAIT FOR VALID HOSTNAME CERTIFICATES ==='
+          check_domain() {
+            local d="$1"
+            curl -fsS --max-time 20 -o /dev/null "https://${d}/"
+            echo | openssl s_client -connect "${d}:443" -servername "$d" 2>/dev/null \
+              | openssl x509 -noout -ext subjectAltName \
+              | grep -F "$d"
+          }
+
+          cal_ok=0
+          ca_ok=0
+          for n in $(seq 1 80); do
+            if [ "$cal_ok" -eq 0 ] && check_domain calendar.lovefly.club >/tmp/cal-cert.txt 2>&1; then
+              cal_ok=1
+              echo "[$n] calendar TLS OK"
+              cat /tmp/cal-cert.txt
+            else
+              [ "$cal_ok" -eq 1 ] || echo "[$n] calendar TLS pending"
+            fi
+            if [ "$ca_ok" -eq 0 ] && check_domain ca-miles.lovefly.club >/tmp/ca-cert.txt 2>&1; then
+              ca_ok=1
+              echo "[$n] ca-miles TLS OK"
+              cat /tmp/ca-cert.txt
+            else
+              [ "$ca_ok" -eq 1 ] || echo "[$n] ca-miles TLS pending"
+            fi
+            [ "$cal_ok" -eq 1 ] && [ "$ca_ok" -eq 1 ] && break
+            sleep 15
+          done
+          [ "$cal_ok" -eq 1 ]
+          [ "$ca_ok" -eq 1 ]
+
+          echo '=== FINAL CUSTOM-DOMAIN API SELF-TEST ==='
+          curl -fsS --max-time 120 'https://calendar.lovefly.club/api/meta' -o /tmp/live-meta.json
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/live-meta.json'))
+          assert x.get('flight_records',0)>0, x
+          assert isinstance(x.get('airports'),list) and x['airports'], x
+          assert isinstance(x.get('airlines'),list) and x['airlines'], x
+          print('live calendar meta ok:', x['flight_records'])
+          PY
+          curl -fsS --max-time 120 'https://calendar.lovefly.club/api/routes?location=%E5%8C%97%E4%BA%AC&direction=departure&membership=666' -o /tmp/live-routes.json
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/live-routes.json'))
+          assert isinstance(x.get('routes'),list) and x['routes'], x
+          print('live calendar routes ok:', len(x['routes']))
+          PY
+          curl -fsS --max-time 30 -o /dev/null 'https://ca-miles.lovefly.club/'
+          echo 'ALL LIVE TESTS PASSED'
