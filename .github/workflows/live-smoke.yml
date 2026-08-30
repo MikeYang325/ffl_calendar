@@ -11,35 +11,18 @@ jobs:
       - name: Compile function
         run: |
           python -m py_compile 'cloud-functions/api/[[default]].py'
-          wc -c 'cloud-functions/api/[[default]].py'
       - name: Check live endpoints
         shell: bash
         run: |
-          set -u
+          set -euo pipefail
           base='https://calendar.lovefly.club'
 
-          echo '=== ROOT ==='
-          code=$(curl -sS -D /tmp/root.h -o /tmp/root.html --max-time 30 -w '%{http_code}' "$base/")
-          echo "status=$code"
-          grep -q '海航飞飞乐PLUS快速查询' /tmp/root.html || true
+          curl -fsS -o /tmp/root.html --max-time 30 "$base/"
+          grep -q '海航飞飞乐PLUS快速查询' /tmp/root.html
 
-          echo '=== META ==='
-          code=$(curl -sS -D /tmp/meta.h -o /tmp/meta.json --max-time 60 -w '%{http_code}' "$base/api/meta")
-          echo "status=$code"
-          cat /tmp/meta.json
-          echo
-
-          echo '=== ROUTES ==='
-          code=$(curl -sS -D /tmp/routes.h -o /tmp/routes.json --max-time 120 -w '%{http_code}' "$base/api/routes?location=PEK&direction=departure&membership=666")
-          echo "status=$code"
-          head -c 2000 /tmp/routes.json
-          echo
-
-          echo '=== SEARCH ==='
-          code=$(curl -sS -D /tmp/search.h -o /tmp/search.json --max-time 120 -w '%{http_code}' "$base/api/search?origin=PEK&destination=CAN&date=2026-09-01&membership=666&max_stops=0")
-          echo "status=$code"
-          head -c 1000 /tmp/search.json
-          echo
+          curl -fsS -o /tmp/meta.json --max-time 60 "$base/api/meta"
+          curl -fsS -o /tmp/routes.json --max-time 120 "$base/api/routes?location=%E5%8C%97%E4%BA%AC&direction=departure&membership=666"
+          curl -fsS -o /tmp/search.json --max-time 120 "$base/api/search?origin=PEK&destination=CAN&date=2026-09-01&membership=666&max_stops=0"
 
           python - <<'PY'
           import json
@@ -48,6 +31,11 @@ jobs:
           search=json.load(open('/tmp/search.json'))
           required=['date_min','date_max','flight_records','route_count','airport_count','airports','airlines','cities']
           assert all(k in meta for k in required), meta
-          assert isinstance(routes.get('routes'), list), routes
+          assert isinstance(meta['airlines'], list) and meta['airlines'], meta
+          assert routes.get('selected_name') == '北京', routes
+          assert isinstance(routes.get('routes'), list) and routes['routes'], routes
           assert isinstance(search.get('results'), list), search
+          print('meta', meta['flight_records'], meta['route_count'], meta['airport_count'])
+          print('beijing_routes', routes['count'])
+          print('search_results', search['count'])
           PY
