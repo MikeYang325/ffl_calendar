@@ -1,17 +1,17 @@
-name: Inspect Pages custom domain bindings
+name: Force deploy three services
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
 jobs:
-  inspect:
-    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Inspect Pages custom domain bindings'
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Force deploy three services'
     runs-on: ubuntu-latest
     env:
       EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
     steps:
-      - name: Query Pages projects and domains
+      - name: Deploy Calendar CA Miles and 666
         shell: bash
         run: |
           set -euo pipefail
@@ -25,16 +25,59 @@ jobs:
               --data-binary "$1"
           }
 
-          projects="$(raw '{"Action":"DescribePagesProjects","Limit":100,"Offset":0}')"
-          echo '=== PROJECTS ==='
-          echo "$projects" | jq '.Data.Response.Projects[] | {Name,ProjectId,Provider,PresetDomain,ZoneId,CustomDomains}'
+          deploy_one() {
+            local name="$1" pid="$2" expected="$3"
+            echo "=== DEPLOY $name ==="
+            local response did status info commit
+            response="$(raw "$(jq -nc --arg pid "$pid" '{Action:"CreatePagesDeployment",ProjectId:$pid,ViaMeta:"Github",Provider:"Github",Env:"Production",RepoBranch:"main"}')")"
+            echo "$response" | jq .
+            test "$(echo "$response" | jq -r '.Code')" = 0
+            did="$(echo "$response" | jq -r '.Data.Response.DeploymentId')"
+            test -n "$did"
 
-          for domain in calendar.lovefly.club ca-miles.lovefly.club; do
-            pid="$(echo "$projects" | jq -r --arg d "$domain" '.Data.Response.Projects[] | select(any(.CustomDomains[]?; .Domain==$d)) | .ProjectId' | head -1)"
-            echo "=== DOMAIN $domain / PROJECT $pid ==="
-            if [ -z "$pid" ]; then
-              echo 'PROJECT_NOT_FOUND'
-              continue
-            fi
-            raw "$(jq -nc --arg pid "$pid" --arg d "$domain" '{Action:"DescribePagesZoneCustomDomains",ProjectId:$pid,Domain:$d}')" | jq .
-          done
+            for i in $(seq 1 80); do
+              info="$(raw "$(jq -nc --arg pid "$pid" --arg did "$did" '{Action:"DescribePagesDeployments",ProjectId:$pid,DeploymentIds:[$did],Limit:10,Offset:0}')")"
+              test "$(echo "$info" | jq -r '.Code')" = 0
+              status="$(echo "$info" | jq -r '.Data.Response.Deployments[0].Status // "Pending"')"
+              echo "$name status=$status"
+              if [ "$status" = Success ]; then
+                commit="$(echo "$info" | jq -r '.Data.Response.Deployments[0].RepoCommitHash // ""')"
+                echo "$name commit=$commit"
+                if [ -n "$expected" ] && [ "$commit" != "$expected" ]; then
+                  echo "$name expected $expected but deployed $commit" >&2
+                  exit 1
+                fi
+                return 0
+              fi
+              case "$status" in Failed|Timeout|Cancelled|Invalid) echo "$info" | jq .; exit 1;; esac
+              sleep 3
+            done
+            echo "$name deployment timed out" >&2
+            exit 1
+          }
+
+          deploy_one calendar makers-fxgtk9g6t5ru "$GITHUB_SHA"
+          deploy_one ca-miles makers-o8z6etxne9wi 218b2bae7a906d167420fb7d115d755b9da620c7
+          deploy_one 666 makers-1gm615g3c1pl 58fa284e17528390bc8517ef0f9209cf9ca05739
+
+          echo '=== WAIT FOR EDGE PROPAGATION ==='
+          sleep 10
+
+          echo '=== Calendar API ==='
+          curl -fsS --retry 4 --retry-delay 3 --max-time 30 'https://calendar.lovefly.club/api/meta' -o /tmp/meta.json
+          jq -e '.airports | length > 0' /tmp/meta.json >/dev/null
+          jq -e '.airlines | length > 0' /tmp/meta.json >/dev/null
+          jq '{date_min,date_max,airport_count:(.airports|length),airline_count:(.airlines|length)}' /tmp/meta.json
+          curl -fsS --retry 3 --retry-delay 2 --max-time 30 'https://calendar.lovefly.club/api/routes?direction=departure&location=PEK&membership=666' -o /tmp/routes.json
+          jq -e '.routes | type == "array"' /tmp/routes.json >/dev/null
+          jq '{count,selected_name}' /tmp/routes.json
+
+          echo '=== CA Miles asset ==='
+          curl -fsS --retry 3 --retry-delay 2 --max-time 30 'https://ca-miles.lovefly.club/lovefly-tools.css' -o /tmp/ca.css
+          grep -q 'CA Miles mobile header fit' /tmp/ca.css
+
+          echo '=== 666 asset ==='
+          curl -fsS --retry 3 --retry-delay 2 --max-time 30 'https://666.lovefly.club/lovefly-tools.css' -o /tmp/ffl.css
+          grep -q '666 mobile query fit' /tmp/ffl.css
+
+          echo 'ALL THREE SERVICES DEPLOYED AND VERIFIED'
