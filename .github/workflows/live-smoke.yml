@@ -7,6 +7,11 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - name: Compile function
+        run: |
+          python -m py_compile 'cloud-functions/api/[[default]].py'
+          wc -c 'cloud-functions/api/[[default]].py'
       - name: Check live endpoints
         shell: bash
         run: |
@@ -30,15 +35,19 @@ jobs:
           head -c 2000 /tmp/routes.json
           echo
 
+          echo '=== SEARCH ==='
+          code=$(curl -sS -D /tmp/search.h -o /tmp/search.json --max-time 120 -w '%{http_code}' "$base/api/search?origin=PEK&destination=CAN&date=2026-09-01&membership=666&max_stops=0")
+          echo "status=$code"
+          head -c 1000 /tmp/search.json
+          echo
+
           python - <<'PY'
           import json
-          ok=True
           meta=json.load(open('/tmp/meta.json'))
-          required=['date_min','date_max','flight_records','route_count','airport_count','airports','airlines','cities']
-          if any(k not in meta for k in required):
-              ok=False
           routes=json.load(open('/tmp/routes.json'))
-          if not isinstance(routes.get('routes'), list):
-              ok=False
-          raise SystemExit(0 if ok else 1)
+          search=json.load(open('/tmp/search.json'))
+          required=['date_min','date_max','flight_records','route_count','airport_count','airports','airlines','cities']
+          assert all(k in meta for k in required), meta
+          assert isinstance(routes.get('routes'), list), routes
+          assert isinstance(search.get('results'), list), search
           PY
