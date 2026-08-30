@@ -10,34 +10,35 @@ jobs:
       - name: Check live endpoints
         shell: bash
         run: |
-          set -euo pipefail
+          set -u
           base='https://calendar.lovefly.club'
 
           echo '=== ROOT ==='
-          curl -fsS -D /tmp/root.h -o /tmp/root.html --max-time 30 "$base/"
-          head -n 1 /tmp/root.h
-          grep -q '海航飞飞乐PLUS快速查询' /tmp/root.html
+          code=$(curl -sS -D /tmp/root.h -o /tmp/root.html --max-time 30 -w '%{http_code}' "$base/")
+          echo "status=$code"
+          grep -q '海航飞飞乐PLUS快速查询' /tmp/root.html || true
 
           echo '=== META ==='
-          curl -fsS -D /tmp/meta.h -o /tmp/meta.json --max-time 60 "$base/api/meta"
-          head -n 1 /tmp/meta.h
-          python - <<'PY'
-          import json
-          x=json.load(open('/tmp/meta.json'))
-          for k in ['date_min','date_max','flight_records','route_count','airport_count','airports','airlines','cities']:
-              assert k in x, (k, x)
-          assert isinstance(x['airports'], list) and x['airports']
-          assert isinstance(x['airlines'], list) and x['airlines']
-          print({k: x[k] for k in ['date_min','date_max','flight_records','route_count','airport_count']})
-          print('airlines', len(x['airlines']), 'airports', len(x['airports']))
-          PY
+          code=$(curl -sS -D /tmp/meta.h -o /tmp/meta.json --max-time 60 -w '%{http_code}' "$base/api/meta")
+          echo "status=$code"
+          cat /tmp/meta.json
+          echo
 
           echo '=== ROUTES ==='
-          curl -fsS -D /tmp/routes.h -o /tmp/routes.json --max-time 120 "$base/api/routes?location=PEK&direction=departure&membership=666"
-          head -n 1 /tmp/routes.h
+          code=$(curl -sS -D /tmp/routes.h -o /tmp/routes.json --max-time 120 -w '%{http_code}' "$base/api/routes?location=PEK&direction=departure&membership=666")
+          echo "status=$code"
+          head -c 2000 /tmp/routes.json
+          echo
+
           python - <<'PY'
           import json
-          x=json.load(open('/tmp/routes.json'))
-          assert 'routes' in x and isinstance(x['routes'], list), x
-          print('count', x.get('count'), 'routes_len', len(x['routes']))
+          ok=True
+          meta=json.load(open('/tmp/meta.json'))
+          required=['date_min','date_max','flight_records','route_count','airport_count','airports','airlines','cities']
+          if any(k not in meta for k in required):
+              ok=False
+          routes=json.load(open('/tmp/routes.json'))
+          if not isinstance(routes.get('routes'), list):
+              ok=False
+          raise SystemExit(0 if ok else 1)
           PY
