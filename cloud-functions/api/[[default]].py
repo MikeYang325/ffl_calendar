@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 DB_FILE = Path("/tmp/flights.db")
 DB_URL = "https://calendar.lovefly.club/data/flights.db"
 BACKEND_FILE = Path("/tmp/calendar_backend.py")
-BACKEND_URL = "https://calendar.lovefly.club/calendar_backend.txt"
+BACKEND_URL = "https://calendar.lovefly.club/static/calendar_backend.js"
 BACKEND_MODULE = None
 
 AIRLINE_MAP = {
