@@ -1,0 +1,35 @@
+name: Apply LoveFly shell live
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update actual EdgeOne public files
+        run: |
+          set -euo pipefail
+          cp lovefly-tools.css public/lovefly-tools.css
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('public/index.html')
+          s = p.read_text()
+          ref = '  <link rel="stylesheet" href="/lovefly-tools.css?v=20260830-shell-3" />\n'
+          if 'lovefly-tools.css' not in s:
+              s = s.replace('</head>', ref + '</head>', 1)
+          sig = '<a class="lovefly-signature" href="https://lovefly.club/" aria-label="返回 LoveFly.club"><span class="lf-love">Love</span><span class="lf-fly">Fly</span><span class="lf-dot">.</span><span class="lf-club">club</span></a>\n          '
+          if 'lovefly-signature' not in s:
+              s = s.replace('          <h1>海航飞飞乐PLUS快速查询</h1>', sig + '<h1>海航飞飞乐PLUS快速查询</h1>', 1)
+          p.write_text(s)
+          PY
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add public/index.html public/lovefly-tools.css
+          git diff --cached --quiet && exit 0
+          git commit -m "Apply LoveFly shell to EdgeOne public files"
+          git push
