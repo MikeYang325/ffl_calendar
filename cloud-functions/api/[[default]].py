@@ -1,12 +1,14 @@
 import json
+import os
 import sqlite3
 import sys
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse
 
-FUNCTION_ROOT = Path(__file__).resolve().parents[1]
-DB_FILE = FUNCTION_ROOT / "data" / "flights.db"
+FUNCTION_DIR = Path(__file__).resolve().parent
+FUNCTION_ROOT = FUNCTION_DIR.parent
+DB_FILE = FUNCTION_DIR / "data" / "flights.db"
 sys.path.insert(0, str(FUNCTION_ROOT))
 
 AIRLINE_MAP = {
@@ -130,5 +132,6 @@ class handler(BaseHTTPRequestHandler):
             except Exception as exc:
                 return self.send_json({"error": str(exc)}, 500)
 
+        os.environ["HNA_FLIGHT_DB"] = str(DB_FILE)
         from app import Handler as AppHandler
         return AppHandler.do_GET(self)
