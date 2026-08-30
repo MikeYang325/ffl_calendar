@@ -1,3 +1,4 @@
+import importlib.util
 import json
 import os
 import sqlite3
@@ -7,10 +8,11 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse
 
-FUNCTION_ROOT = Path(__file__).resolve().parent.parent
 DB_FILE = Path("/tmp/flights.db")
 DB_URL = "https://calendar.lovefly.club/data/flights.db"
-sys.path.insert(0, str(FUNCTION_ROOT))
+BACKEND_FILE = Path("/tmp/calendar_backend.py")
+BACKEND_URL = "https://calendar.lovefly.club/calendar_backend.py"
+BACKEND_MODULE = None
 
 AIRLINE_MAP = {
     "HU": "海南航空", "GS": "天津航空", "JD": "首都航空", "PN": "西部航空",
@@ -25,21 +27,40 @@ CITY_AIRPORT_MAP = {
 }
 
 
-def ensure_db():
-    if DB_FILE.exists() and DB_FILE.stat().st_size > 1024 * 1024:
+def download_file(url, path, min_size=1):
+    if path.exists() and path.stat().st_size >= min_size:
         return
-    tmp = DB_FILE.with_suffix(".download")
-    with urllib.request.urlopen(DB_URL, timeout=60) as response, tmp.open("wb") as out:
+    tmp = path.with_suffix(path.suffix + ".download")
+    with urllib.request.urlopen(url, timeout=60) as response, tmp.open("wb") as out:
         while True:
             chunk = response.read(1024 * 1024)
             if not chunk:
                 break
             out.write(chunk)
-    with tmp.open("rb") as source:
+    tmp.replace(path)
+
+
+def ensure_db():
+    download_file(DB_URL, DB_FILE, 1024 * 1024)
+    with DB_FILE.open("rb") as source:
         if source.read(16) != b"SQLite format 3\x00":
-            tmp.unlink(missing_ok=True)
+            DB_FILE.unlink(missing_ok=True)
             raise RuntimeError("下载的 flights.db 不是有效 SQLite 文件")
-    tmp.replace(DB_FILE)
+
+
+def load_backend():
+    global BACKEND_MODULE
+    if BACKEND_MODULE is not None:
+        return BACKEND_MODULE
+    download_file(BACKEND_URL, BACKEND_FILE, 1024)
+    os.environ["HNA_FLIGHT_DB"] = str(DB_FILE)
+    spec = importlib.util.spec_from_file_location("lovefly_calendar_backend", BACKEND_FILE)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("无法加载 calendar backend")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    BACKEND_MODULE = module
+    return module
 
 
 def pinyin_initial(text):
@@ -151,8 +172,7 @@ class handler(BaseHTTPRequestHandler):
 
         try:
             ensure_db()
-            os.environ["HNA_FLIGHT_DB"] = str(DB_FILE)
-            from calendar_backend import Handler as AppHandler
-            return AppHandler.do_GET(self)
+            module = load_backend()
+            return module.Handler.do_GET(self)
         except Exception as exc:
             return self.send_json({"error": str(exc)}, 500)
