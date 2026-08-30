@@ -1,0 +1,28 @@
+name: LoveFly shared shell
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Link shared tool shell
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('index.html')
+          s=p.read_text()
+          link='  <link rel="stylesheet" href="https://lovefly.club/assets/lovefly-tools.css?v=20260830-shell-1" />\n'
+          if 'lovefly-tools.css' not in s:
+              s=s.replace('</head>',link+'</head>',1)
+              p.write_text(s)
+          PY
+          rm .github/workflows/lovefly-shared-shell.yml
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add index.html .github/workflows/lovefly-shared-shell.yml
+          git commit -m "Use shared LoveFly tools shell"
+          git push
