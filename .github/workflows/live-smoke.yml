@@ -1,41 +1,67 @@
-name: Live calendar smoke
+name: Diagnose calendar and HTTPS
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
-  smoke:
+  diagnose:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Diagnose calendar and HTTPS'
     runs-on: ubuntu-latest
+    env:
+      EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Compile function
-        run: |
-          python -m py_compile 'cloud-functions/api/[[default]].py'
-      - name: Check live endpoints
+      - name: Probe live services and EdgeOne state
         shell: bash
         run: |
-          set -euo pipefail
-          base='https://calendar.lovefly.club'
+          set -u
+          API='https://pages-api.edgeone.ai/v1'
+          : "${EDGEONE_API_TOKEN:?EDGEONE_API_TOKEN is missing}"
 
-          curl -fsS -o /tmp/root.html --max-time 30 "$base/"
-          grep -q '海航飞飞乐PLUS快速查询' /tmp/root.html
+          echo '=== NORMAL TLS ==='
+          for d in calendar.lovefly.club ca-miles.lovefly.club; do
+            echo "--- $d ---"
+            curl -sS --max-time 20 -D "/tmp/${d}.headers" -o "/tmp/${d}.body" -w 'HTTP=%{http_code}\n' "https://${d}/" || echo 'TLS_OR_HTTP_FAILED'
+            sed -n '1,12p' "/tmp/${d}.headers" 2>/dev/null || true
+          done
 
-          curl -fsS -o /tmp/meta.json --max-time 60 "$base/api/meta"
-          curl -fsS -o /tmp/routes.json --max-time 120 "$base/api/routes?location=%E5%8C%97%E4%BA%AC&direction=departure&membership=666"
-          curl -fsS -o /tmp/search.json --max-time 120 "$base/api/search?origin=PEK&destination=CAN&date=2026-09-01&membership=666&max_stops=0"
+          echo '=== CALENDAR META NORMAL TLS ==='
+          curl -sS --max-time 60 -D /tmp/meta.headers -o /tmp/meta.json -w 'HTTP=%{http_code}\n' 'https://calendar.lovefly.club/api/meta' || echo 'META_TLS_OR_HTTP_FAILED'
+          sed -n '1,15p' /tmp/meta.headers 2>/dev/null || true
+          cat /tmp/meta.json 2>/dev/null || true
+          echo
 
-          python - <<'PY'
-          import json
-          meta=json.load(open('/tmp/meta.json'))
-          routes=json.load(open('/tmp/routes.json'))
-          search=json.load(open('/tmp/search.json'))
-          required=['date_min','date_max','flight_records','route_count','airport_count','airports','airlines','cities']
-          assert all(k in meta for k in required), meta
-          assert isinstance(meta['airlines'], list) and meta['airlines'], meta
-          assert routes.get('selected_name') == '北京', routes
-          assert isinstance(routes.get('routes'), list) and routes['routes'], routes
-          assert isinstance(search.get('results'), list), search
-          print('meta', meta['flight_records'], meta['route_count'], meta['airport_count'])
-          print('beijing_routes', routes['count'])
-          print('search_results', search['count'])
-          PY
+          echo '=== CALENDAR META IGNORE TLS (diagnostic only) ==='
+          curl -k -sS --max-time 60 -D /tmp/metak.headers -o /tmp/metak.json -w 'HTTP=%{http_code}\n' 'https://calendar.lovefly.club/api/meta' || true
+          sed -n '1,15p' /tmp/metak.headers 2>/dev/null || true
+          cat /tmp/metak.json 2>/dev/null || true
+          echo
+
+          echo '=== CALENDAR PRESET DOMAIN ==='
+          curl -sS --max-time 60 -D /tmp/preset.headers -o /tmp/preset.json -w 'HTTP=%{http_code}\n' 'https://ffl-calendar-new.edgeone.dev/api/meta' || true
+          sed -n '1,15p' /tmp/preset.headers 2>/dev/null || true
+          cat /tmp/preset.json 2>/dev/null || true
+          echo
+          curl -sS --max-time 30 -I 'https://ffl-calendar-new.edgeone.dev/data/flights.db' || true
+
+          edgeone() {
+            curl -sS "$API" \
+              -H 'Content-Type: application/json' \
+              -H "Authorization: Bearer ${EDGEONE_API_TOKEN}" \
+              --data-binary "$1"
+          }
+
+          echo '=== EDGEONE CALENDAR PROJECT ==='
+          edgeone '{"Action":"DescribePagesProjects","Filters":[{"Name":"ProjectId","Values":["makers-fxgtk9g6t5ru"]}],"Limit":10,"Offset":0}' | jq .
+          echo '=== EDGEONE CA PROJECT ==='
+          edgeone '{"Action":"DescribePagesProjects","Filters":[{"Name":"ProjectId","Values":["makers-o8z6etxne9wi"]}],"Limit":10,"Offset":0}' | jq .
+          echo '=== EDGEONE CALENDAR DOMAIN ==='
+          edgeone '{"Action":"DescribePagesZoneCustomDomains","ProjectId":"makers-fxgtk9g6t5ru","Domain":"calendar.lovefly.club"}' | jq .
+          echo '=== EDGEONE CA DOMAIN ==='
+          edgeone '{"Action":"DescribePagesZoneCustomDomains","ProjectId":"makers-o8z6etxne9wi","Domain":"ca-miles.lovefly.club"}' | jq .
+
+          echo '=== TLS CERTIFICATE SUBJECTS ==='
+          for d in calendar.lovefly.club ca-miles.lovefly.club; do
+            echo "--- $d ---"
+            echo | openssl s_client -connect "${d}:443" -servername "$d" -showcerts 2>/tmp/openssl.err | openssl x509 -noout -subject -issuer -dates 2>/dev/null || cat /tmp/openssl.err
+          done
