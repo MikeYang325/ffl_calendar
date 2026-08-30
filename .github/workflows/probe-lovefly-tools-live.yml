@@ -7,17 +7,30 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe HTTP and HTTPS behavior
+      - name: Probe production services
         shell: bash
         run: |
           set -euo pipefail
-          for domain in calendar.lovefly.club ca-miles.lovefly.club; do
-            echo "===== $domain ====="
-            echo '--- HTTP ---'
-            curl -sS -I --max-time 30 "http://${domain}/" | sed -n '1,8p'
-            echo '--- HTTPS ---'
-            curl -fsS -I --max-time 30 "https://${domain}/" | sed -n '1,8p'
-            echo '--- CERT SAN ---'
-            echo | openssl s_client -connect "${domain}:443" -servername "$domain" 2>/dev/null \
-              | openssl x509 -noout -subject -ext subjectAltName
-          done
+
+          echo '=== Calendar API ==='
+          curl -fsS --max-time 30 'https://calendar.lovefly.club/api/meta' -o /tmp/meta.json
+          jq -e '.airports | length > 0' /tmp/meta.json >/dev/null
+          jq -e '.airlines | length > 0' /tmp/meta.json >/dev/null
+          jq '{date_min,date_max,airport_count:(.airports|length),airline_count:(.airlines|length)}' /tmp/meta.json
+          curl -fsS --max-time 30 'https://calendar.lovefly.club/api/routes?direction=departure&location=PEK&membership=666' -o /tmp/routes.json
+          jq -e '.routes | type == "array"' /tmp/routes.json >/dev/null
+          jq '{count,selected_name}' /tmp/routes.json
+
+          echo '=== CA Miles ==='
+          curl -fsS --max-time 30 'https://ca-miles.lovefly.club/' -o /tmp/ca.html
+          grep -q '凤凰知音里程计算' /tmp/ca.html
+          curl -fsS --max-time 30 'https://ca-miles.lovefly.club/lovefly-tools.css' -o /tmp/ca.css
+          grep -q 'CA Miles mobile header fit' /tmp/ca.css
+
+          echo '=== 666 ==='
+          curl -fsS --max-time 30 'https://666.lovefly.club/' -o /tmp/ffl.html
+          grep -q '飞飞乐机票监控' /tmp/ffl.html
+          curl -fsS --max-time 30 'https://666.lovefly.club/lovefly-tools.css' -o /tmp/ffl.css
+          grep -q '666 mobile query fit' /tmp/ffl.css
+
+          echo 'ALL SERVICE SMOKE CHECKS PASSED'
