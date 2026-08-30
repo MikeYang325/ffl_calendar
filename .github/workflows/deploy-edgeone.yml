@@ -1,0 +1,24 @@
+name: Deploy EdgeOne
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install EdgeOne CLI
+        run: npm install -g edgeone
+
+      - name: Deploy production
+        env:
+          EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
+        run: edgeone makers deploy . -n ffl-calendar -t "$EDGEONE_API_TOKEN" -e production
