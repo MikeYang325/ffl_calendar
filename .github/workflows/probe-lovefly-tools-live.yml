@@ -1,0 +1,22 @@
+name: Probe LoveFly tools live
+on:
+  push:
+    branches: [main]
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe four production domains
+        shell: bash
+        run: |
+          set +e
+          for base in https://666.lovefly.club https://calendar.lovefly.club https://ca-miles.lovefly.club https://ram.lovefly.club; do
+            echo "===== $base ====="
+            page_code=$(curl -L -sS -o /tmp/page.html -w '%{http_code}' --max-time 30 "$base/")
+            echo "PAGE_HTTP=$page_code"
+            if grep -q 'lovefly-tools.css' /tmp/page.html; then echo 'PAGE_STYLE_REF=YES'; else echo 'PAGE_STYLE_REF=NO'; fi
+            css_code=$(curl -L -sS -o /tmp/tools.css -w '%{http_code}' --max-time 30 "$base/lovefly-tools.css?v=20260830-shell-3")
+            echo "CSS_HTTP=$css_code"
+            if grep -q -- '--lf-content:1440px' /tmp/tools.css; then echo 'CSS_MARKER=YES'; else echo 'CSS_MARKER=NO'; fi
+          done
