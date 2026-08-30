@@ -20,13 +20,3 @@ body{background:linear-gradient(90deg,rgba(8,27,43,.98) 0%,rgba(8,27,43,.90) 46%
 @media(max-width:720px){html{background:var(--lf-navy)!important}body{background:linear-gradient(180deg,rgba(8,27,43,.78) 0%,rgba(8,27,43,.92) 100%),url("https://lovefly.club/assets/background-wing.webp") 62% top/auto 240px no-repeat!important;background-color:var(--lf-navy)!important}.shell,.app-shell,.page-shell{width:100%!important;max-width:none!important}.masthead,.app-shell>.topbar,.page-shell>.hero,.shell>.topbar{background:linear-gradient(90deg,rgba(8,27,43,.94),rgba(8,27,43,.60)),url("https://lovefly.club/assets/background-wing.webp") 62% center/cover no-repeat!important}.query-row{padding:14px 0!important;gap:12px!important}.mode-options{gap:18px!important;overflow-x:auto!important;scrollbar-width:none}.mode-options::-webkit-scrollbar{display:none}.query-row .search-button{width:100%!important;min-height:44px!important}}
 
 .carrier-heading{display:flex;align-items:center;gap:16px}.carrier-logo{display:block;flex:0 0 auto;width:auto;max-width:116px;height:34px;object-fit:contain;object-position:left center}.carrier-logo--hainan{height:40px}@media(max-width:720px){.carrier-heading{gap:10px}.carrier-logo{max-width:84px;height:28px}.carrier-logo--hainan{height:30px}}
-
-/* Restore pre-wing background */
-html{background:var(--lf-bg)!important}
-body{background:var(--lf-bg)!important}
-.masthead,.app-shell>.topbar,.page-shell>.hero,.shell>.topbar{background:var(--lf-paper)!important;color:var(--lf-ink)!important;border-bottom:1px solid var(--lf-line)!important}
-.masthead .brand,.masthead .brand span,.masthead-actions>a,.masthead .account-name,.app-shell>.topbar h1,.app-shell>.topbar>a,.page-shell>.hero h1,.page-shell>.hero .data-badge,.shell>.topbar .brand h1,.shell>.topbar .top-actions,.shell>.topbar .top-actions>*{color:var(--lf-ink)!important}
-.app-shell>.topbar p,.page-shell>.hero p,.shell>.topbar .brand p{color:var(--lf-muted)!important}
-.masthead .text-button,.shell>.topbar .ghost-btn{color:#555!important}
-.lovefly-signature,.lovefly-signature .lf-love,.lovefly-signature .lf-fly{color:var(--lf-ink)!important}.lovefly-signature .lf-club{color:#777!important}
-@media(max-width:720px){html,body{background:#fff!important}.masthead,.app-shell>.topbar,.page-shell>.hero,.shell>.topbar{background:#fff!important}}
