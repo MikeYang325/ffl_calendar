@@ -2,7 +2,7 @@ import importlib.util
 import json
 import os
 import sqlite3
-import sys
+import threading
 import urllib.request
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 DB_FILE = Path("/tmp/flights.db")
 DB_URL = "https://calendar.lovefly.club/data/flights.db"
 BACKEND_FILE = Path("/tmp/calendar_backend.py")
-BACKEND_URL = "https://calendar.lovefly.club/calendar_backend.py"
+BACKEND_URL = "https://calendar.lovefly.club/calendar_backend.txt"
 BACKEND_MODULE = None
 
 AIRLINE_MAP = {
@@ -30,14 +30,20 @@ CITY_AIRPORT_MAP = {
 def download_file(url, path, min_size=1):
     if path.exists() and path.stat().st_size >= min_size:
         return
-    tmp = path.with_suffix(path.suffix + ".download")
-    with urllib.request.urlopen(url, timeout=60) as response, tmp.open("wb") as out:
-        while True:
-            chunk = response.read(1024 * 1024)
-            if not chunk:
-                break
-            out.write(chunk)
-    tmp.replace(path)
+    tmp = Path(f"{path}.{os.getpid()}.{threading.get_ident()}.download")
+    try:
+        with urllib.request.urlopen(url, timeout=60) as response, tmp.open("wb") as out:
+            while True:
+                chunk = response.read(1024 * 1024)
+                if not chunk:
+                    break
+                out.write(chunk)
+        if path.exists() and path.stat().st_size >= min_size:
+            tmp.unlink(missing_ok=True)
+            return
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def ensure_db():
