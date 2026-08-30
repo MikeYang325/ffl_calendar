@@ -1,83 +1,24 @@
-name: Recover live services
+name: Inspect calendar deployment history
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
 jobs:
-  recover:
-    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Recover live services'
+  inspect:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Inspect calendar deployment history'
     runs-on: ubuntu-latest
     env:
       EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
     steps:
-      - name: Probe Calendar and deploy CA Miles plus 666
+      - name: List successful Calendar deployments
         shell: bash
         run: |
           set -euo pipefail
           API='https://pages-api.edgeone.ai/v1'
           : "${EDGEONE_API_TOKEN:?EDGEONE_API_TOKEN is missing}"
-
-          raw() {
-            curl -sS "$API" \
-              -H 'Content-Type: application/json' \
-              -H "Authorization: Bearer ${EDGEONE_API_TOKEN}" \
-              --data-binary "$1"
-          }
-
-          echo '=== CALENDAR CANDIDATES ==='
-          for base in https://ffl-calendar.edgeone.dev https://ffl-calendar-new.edgeone.dev https://calendar.lovefly.club; do
-            echo "--- $base/api/meta ---"
-            set +e
-            code="$(curl -sS --max-time 20 -o /tmp/meta.json -w '%{http_code}' "$base/api/meta")"
-            rc=$?
-            set -e
-            echo "curl_rc=$rc http=$code"
-            if [ "$rc" = 0 ]; then jq '{error,date_min,date_max,airports:(.airports|length),airlines:(.airlines|length)}' /tmp/meta.json 2>/dev/null || head -c 500 /tmp/meta.json; echo; fi
-          done
-
-          deploy_one() {
-            local name="$1" pid="$2" expected="$3"
-            echo "=== DEPLOY $name ==="
-            local response error did status info commit
-            response="$(raw "$(jq -nc --arg pid "$pid" '{Action:"CreatePagesDeployment",ProjectId:$pid,ViaMeta:"Github",Provider:"Github",Env:"Production",RepoBranch:"main"}')")"
-            echo "$response" | jq .
-            test "$(echo "$response" | jq -r '.Code')" = 0
-            error="$(echo "$response" | jq -r '.Data.Response.Error.Message // empty')"
-            if [ -n "$error" ]; then echo "$name deploy rejected: $error" >&2; return 2; fi
-            did="$(echo "$response" | jq -r '.Data.Response.DeploymentId // empty')"
-            test -n "$did"
-            for i in $(seq 1 70); do
-              info="$(raw "$(jq -nc --arg pid "$pid" --arg did "$did" '{Action:"DescribePagesDeployments",ProjectId:$pid,DeploymentIds:[$did],Limit:10,Offset:0}')")"
-              status="$(echo "$info" | jq -r '.Data.Response.Deployments[0].Status // "Pending"')"
-              echo "$name status=$status"
-              if [ "$status" = Success ]; then
-                commit="$(echo "$info" | jq -r '.Data.Response.Deployments[0].RepoCommitHash // ""')"
-                echo "$name commit=$commit"
-                test "$commit" = "$expected"
-                return 0
-              fi
-              case "$status" in Failed|Timeout|Cancelled|Invalid) echo "$info" | jq .; return 1;; esac
-              sleep 3
-            done
-            return 1
-          }
-
-          ca_ok=0
-          ffl_ok=0
-          deploy_one ca-miles makers-o8z6etxne9wi 218b2bae7a906d167420fb7d115d755b9da620c7 && ca_ok=1 || true
-          deploy_one 666 makers-1gm615g3c1pl 58fa284e17528390bc8517ef0f9209cf9ca05739 && ffl_ok=1 || true
-          echo "ca_deployed=$ca_ok ffl_deployed=$ffl_ok"
-
-          if [ "$ca_ok" = 1 ]; then
-            sleep 8
-            curl -fsS --retry 3 --retry-delay 2 --max-time 30 'https://ca-miles.lovefly.club/lovefly-tools.css' -o /tmp/ca.css
-            grep -q 'CA Miles mobile header fit' /tmp/ca.css
-            echo 'CA_MILES_LIVE=PASS'
-          fi
-          if [ "$ffl_ok" = 1 ]; then
-            sleep 8
-            curl -fsS --retry 3 --retry-delay 2 --max-time 30 'https://666.lovefly.club/lovefly-tools.css' -o /tmp/ffl.css
-            grep -q '666 mobile query fit' /tmp/ffl.css
-            echo 'FFL_666_LIVE=PASS'
-          fi
+          curl -sS "$API" \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer ${EDGEONE_API_TOKEN}" \
+            --data-binary '{"Action":"DescribePagesDeployments","ProjectId":"makers-fxgtk9g6t5ru","Filters":[{"Name":"Status","Values":["Success"]}],"Limit":50,"Offset":0,"OrderBy":"ModifiedOn","OrderType":"Desc"}' \
+            | jq '.Data.Response.Deployments[] | {DeploymentId,Status,ViaMeta,Env,RepoCommitHash,RepoCommitMsg,CreatedOn,ModifiedOn,UsedInProd,PreviewUrl}'
