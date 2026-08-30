@@ -1,0 +1,43 @@
+name: Live calendar smoke
+on:
+  push:
+    branches: [main]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check live endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+          base='https://calendar.lovefly.club'
+
+          echo '=== ROOT ==='
+          curl -fsS -D /tmp/root.h -o /tmp/root.html --max-time 30 "$base/"
+          head -n 1 /tmp/root.h
+          grep -q '海航飞飞乐PLUS快速查询' /tmp/root.html
+
+          echo '=== META ==='
+          curl -fsS -D /tmp/meta.h -o /tmp/meta.json --max-time 60 "$base/api/meta"
+          head -n 1 /tmp/meta.h
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/meta.json'))
+          for k in ['date_min','date_max','flight_records','route_count','airport_count','airports','airlines','cities']:
+              assert k in x, (k, x)
+          assert isinstance(x['airports'], list) and x['airports']
+          assert isinstance(x['airlines'], list) and x['airlines']
+          print({k: x[k] for k in ['date_min','date_max','flight_records','route_count','airport_count']})
+          print('airlines', len(x['airlines']), 'airports', len(x['airports']))
+          PY
+
+          echo '=== ROUTES ==='
+          curl -fsS -D /tmp/routes.h -o /tmp/routes.json --max-time 120 "$base/api/routes?location=PEK&direction=departure&membership=666"
+          head -n 1 /tmp/routes.h
+          python - <<'PY'
+          import json
+          x=json.load(open('/tmp/routes.json'))
+          assert 'routes' in x and isinstance(x['routes'], list), x
+          print('count', x.get('count'), 'routes_len', len(x['routes']))
+          PY
