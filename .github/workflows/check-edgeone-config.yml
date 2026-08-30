@@ -1,0 +1,20 @@
+name: Check EdgeOne config
+on:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check non-sensitive EdgeOne configuration
+        env:
+          EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
+          EDGEONE_PROJECT_NAME: ${{ vars.EDGEONE_PROJECT_NAME }}
+          EDGEONE_PROJECT: ${{ vars.EDGEONE_PROJECT }}
+          EDGEONE_PROJECT_ID: ${{ vars.EDGEONE_PROJECT_ID }}
+        run: |
+          if [ -n "$EDGEONE_API_TOKEN" ]; then echo 'EDGEONE_API_TOKEN_SET=YES'; else echo 'EDGEONE_API_TOKEN_SET=NO'; fi
+          echo "EDGEONE_PROJECT_NAME=${EDGEONE_PROJECT_NAME:-<unset>}"
+          echo "EDGEONE_PROJECT=${EDGEONE_PROJECT:-<unset>}"
+          echo "EDGEONE_PROJECT_ID=${EDGEONE_PROJECT_ID:-<unset>}"
