@@ -1,41 +1,40 @@
-name: Diagnose EdgeOne certificate state
+name: Inspect Pages custom domain bindings
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
 jobs:
-  diagnose:
-    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Diagnose EdgeOne certificate state'
+  inspect:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Inspect Pages custom domain bindings'
     runs-on: ubuntu-latest
     env:
       EDGEONE_API_TOKEN: ${{ secrets.EDGEONE_API_TOKEN }}
     steps:
-      - name: Query CNAME and certificate state
+      - name: Query Pages projects and domains
         shell: bash
         run: |
           set -euo pipefail
           API='https://pages-api.edgeone.ai/v1'
-          ZONE='zone-3ucp6ukgkx0d'
           : "${EDGEONE_API_TOKEN:?EDGEONE_API_TOKEN is missing}"
 
-          call() {
+          raw() {
             curl -sS "$API" \
               -H 'Content-Type: application/json' \
               -H "Authorization: Bearer ${EDGEONE_API_TOKEN}" \
-              --data-binary "$1" | jq .
+              --data-binary "$1"
           }
 
-          echo '=== CNAME STATUS ==='
-          call "$(jq -nc --arg zone "$ZONE" '{Action:"CheckCnameStatus",ZoneId:$zone,RecordNames:["calendar.lovefly.club","ca-miles.lovefly.club"]}')"
+          projects="$(raw '{"Action":"DescribePagesProjects","Limit":100,"Offset":0}')"
+          echo '=== PROJECTS ==='
+          echo "$projects" | jq '.Data.Response.Projects[] | {Name,ProjectId,Provider,PresetDomain,ZoneId,CustomDomains}'
 
-          echo '=== HOST CERTIFICATES ==='
-          call "$(jq -nc --arg zone "$ZONE" '{Action:"DescribeHostCertificates",ZoneId:$zone,Filters:[{Name:"host",Values:["calendar.lovefly.club","ca-miles.lovefly.club"]}]}')"
-
-          for d in calendar.lovefly.club ca-miles.lovefly.club; do
-            echo "=== FREE CERT RESULT: $d ==="
-            call "$(jq -nc --arg zone "$ZONE" --arg domain "$d" '{Action:"CheckFreeCertificateVerification",ZoneId:$zone,Domain:$domain}')"
+          for domain in calendar.lovefly.club ca-miles.lovefly.club; do
+            pid="$(echo "$projects" | jq -r --arg d "$domain" '.Data.Response.Projects[] | select(any(.CustomDomains[]?; .Domain==$d)) | .ProjectId' | head -1)"
+            echo "=== DOMAIN $domain / PROJECT $pid ==="
+            if [ -z "$pid" ]; then
+              echo 'PROJECT_NOT_FOUND'
+              continue
+            fi
+            raw "$(jq -nc --arg pid "$pid" --arg d "$domain" '{Action:"DescribePagesZoneCustomDomains",ProjectId:$pid,Domain:$d}')" | jq .
           done
-
-          echo '=== PAGES CUSTOM DOMAINS ==='
-          call "$(jq -nc '{Action:"DescribePagesZoneCustomDomains",Limit:100,Offset:0}')"
