@@ -7,20 +7,17 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Probe four production domains
+      - name: Probe HTTP and HTTPS behavior
         shell: bash
         run: |
-          set +e
-          for base in https://666.lovefly.club https://calendar.lovefly.club https://ca-miles.lovefly.club https://ram.lovefly.club; do
-            echo "===== $base ====="
-            page_code=$(curl -L -sS -D /tmp/headers.txt -o /tmp/page.html -w '%{http_code}' --max-time 30 "$base/")
-            echo "PAGE_HTTP=$page_code"
-            grep -Ei '^(server|via|x-vercel-id|x-cache|x-edge|eo-|age):' /tmp/headers.txt | tail -12 || true
-            if grep -q 'lovefly-tools.css' /tmp/page.html; then echo 'PAGE_STYLE_REF=YES'; else echo 'PAGE_STYLE_REF=NO'; fi
-            css_code=$(curl -L -sS -o /tmp/tools.css -w '%{http_code}' --max-time 30 "$base/lovefly-tools.css?v=20260830-shell-4")
-            echo "CSS_HTTP=$css_code"
-            if grep -q -- '--lf-content:1440px' /tmp/tools.css; then echo 'CSS_MARKER=YES'; else echo 'CSS_MARKER=NO'; fi
-            version_code=$(curl -L -sS -o /tmp/version.json -w '%{http_code}' --max-time 30 "$base/version.json")
-            echo "VERSION_HTTP=$version_code"
-            if [ "$version_code" = 200 ]; then cat /tmp/version.json; echo; fi
+          set -euo pipefail
+          for domain in calendar.lovefly.club ca-miles.lovefly.club; do
+            echo "===== $domain ====="
+            echo '--- HTTP ---'
+            curl -sS -I --max-time 30 "http://${domain}/" | sed -n '1,8p'
+            echo '--- HTTPS ---'
+            curl -fsS -I --max-time 30 "https://${domain}/" | sed -n '1,8p'
+            echo '--- CERT SAN ---'
+            echo | openssl s_client -connect "${domain}:443" -servername "$domain" 2>/dev/null \
+              | openssl x509 -noout -subject -ext subjectAltName
           done
