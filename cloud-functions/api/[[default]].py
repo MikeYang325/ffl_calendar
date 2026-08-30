@@ -9,7 +9,7 @@ from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-DB_FILE = Path(__file__).resolve().parent / 'data' / 'flights.db'
+DB_FILE = Path('/tmp/flights.db')
 DB_URL = 'https://ffl-calendar-new.edgeone.dev/data/flights.db'
 BLACKOUT_START = '2026-10-01'
 BLACKOUT_END = '2026-10-08'
@@ -49,6 +49,7 @@ def ensure_db():
 
 
 def connect():
+    ensure_db()
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
     return conn
