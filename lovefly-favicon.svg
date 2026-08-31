@@ -1,6 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
-  <title>LoveFly.club</title>
-  <rect x="1.5" y="1.5" width="61" height="61" rx="11" fill="#081b2b" stroke="#e52323" stroke-width="3" />
-  <text x="32" y="29" fill="#f4f7f8" font-family="Georgia, Times New Roman, serif" font-size="21" font-style="italic" text-anchor="middle">Love</text>
-  <text x="32" y="51" fill="#f4f7f8" font-family="Arial, Helvetica, sans-serif" font-size="21" font-weight="700" text-anchor="middle">Fly<tspan fill="#e52323">.</tspan><tspan dx="1" fill="#b7c9d2" font-size="8" font-weight="400">club</tspan></text>
+  <title>LoveFly</title>
+  <rect width="64" height="64" rx="12" fill="#081b2b" />
+  <rect x="3" y="3" width="58" height="58" rx="9" fill="none" stroke="#e52323" stroke-width="5" />
+  <text x="32" y="29" fill="#f4f7f8" font-family="Arial Black, Arial, sans-serif" font-size="27" font-weight="900" text-anchor="middle">L</text>
+  <path d="M15 33h34" stroke="#e52323" stroke-width="3" />
+  <text x="32" y="57" fill="#f4f7f8" font-family="Arial Black, Arial, sans-serif" font-size="27" font-weight="900" text-anchor="middle">F</text>
 </svg>
