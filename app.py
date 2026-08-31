@@ -798,6 +798,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_file(BASE_DIR / "static" / "style.css")
         if path == "/static/app.js":
             return self.send_file(BASE_DIR / "static" / "app.js")
+        if path == "/lovefly-tools.css":
+            return self.send_file(BASE_DIR / "lovefly-tools.css")
+        if path == "/lovefly-wordmark.svg":
+            return self.send_file(BASE_DIR / "lovefly-wordmark.svg")
         if path == "/api/health":
             return self.send_json({"ok": True, "database": str(DB_FILE), "records": len(STORE.flights)})
         if path == "/api/meta":
